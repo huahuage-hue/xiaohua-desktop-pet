@@ -16,7 +16,7 @@
   .cb { position: absolute; left: 12px; right: 12px; bottom: 6px; z-index: 9; display: none; flex-direction: column; gap: 4px; margin: 0; }
   .cb.on { display: flex; animation: cbIn .22s cubic-bezier(.3,1.4,.5,1) both; }
   @keyframes cbIn { from { opacity: 0; transform: translateY(8px) scale(.97); } }
-  .cb-row { display: flex; align-items: center; gap: 2px; height: 34px; padding: 0 4px 0 12px; box-sizing: border-box;
+  .cb-row { display: flex; align-items: center; gap: 2px; height: 34px; padding: 0 4px 0 4px; box-sizing: border-box;
     background: rgba(251,246,234,.97); border: 1.5px solid #8B6A4E; border-radius: 999px;
     box-shadow: 0 2px 0 rgba(139,106,78,.16), 0 6px 14px rgba(74,58,50,.2); }
   .cb-row:focus-within { box-shadow: 0 0 0 2px rgba(192,122,69,.25), 0 6px 14px rgba(74,58,50,.2); }
@@ -28,6 +28,14 @@
   .cb .ico:hover { background: #F1E6D6; }
   .cb .ico:focus-visible { outline: 2px solid #C07A45; outline-offset: 1px; }
   .cb .ico svg { width: 15px; height: 15px; display: block; }
+  .cb .ico[aria-pressed="true"] { background: #F4E3C8; color: #C07A45; box-shadow: inset 0 0 0 1px #E0C29E; }
+  .cb input { padding-left: 4px; }
+  /* 她想帮你做事时问一句：好 / 不要 */
+  .cb-ask { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; border-radius: 14px; background: #FFFDF7; border: 1.5px solid #C07A45;
+    color: #4A3A32; font-size: 12px; line-height: 1.5; white-space: pre-wrap; word-break: break-all; box-shadow: 0 3px 10px rgba(74,58,50,.2); }
+  .cb-ask-b { display: flex; gap: 6px; justify-content: flex-end; }
+  .cb-ask button { border: 1px solid #C9A88A; background: #fff; color: #7A5A40; border-radius: 999px; padding: 3px 14px; font-size: 12px; cursor: pointer; }
+  .cb-ask button[data-a="1"] { background: #8B6A4E; border-color: #8B6A4E; color: #fff; }
   .cb .send { color: #fff; background: #8B6A4E; }
   .cb .send:hover { background: #7A5A40; }
   .cb-tip { align-self: center; display: flex; align-items: center; gap: 6px; max-width: 100%; padding: 3px 4px 3px 10px; border-radius: 999px;
@@ -83,7 +91,14 @@
   </div>
   <form class="cb" id="cb" autocomplete="off" aria-label="和小嬅说话">
     <div class="cb-tip" id="cbTip" role="status" hidden><span id="cbTipText"></span><button type="button" id="cbRetry">重发</button></div>
+    <div class="cb-ask" id="cbAsk" role="alertdialog" aria-labelledby="cbAskText" hidden>
+      <span id="cbAskText"></span>
+      <span class="cb-ask-b"><button type="button" data-a="1">好</button><button type="button" data-a="0">不要</button></span>
+    </div>
     <div class="cb-row">
+      <button type="button" class="ico" id="cbThink" title="深度思考：她会想得更久、更认真（再点一下关掉）" aria-label="深度思考" aria-pressed="false">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-3.6 10.8c.6.5 1 1.2 1 2V16h5.2v-.2c0-.8.4-1.5 1-2A6 6 0 0 0 12 3Z"/></svg>
+      </button>
       <input id="cbIn" maxlength="300" placeholder="和小嬅说点什么…" aria-label="和小嬅说话" enterkeyhint="send" spellcheck="false">
       <button type="button" class="ico" id="cbStop" title="让她停下" aria-label="停止回复" hidden>■</button>
       <button type="submit" class="ico send" id="cbSend" title="发送（Enter）" aria-label="发送">
@@ -120,6 +135,7 @@ window.XH_GREET_GATE = (function () {
 <script src="assets/app-assist.js"></script>
 <script src="assets/app.js"></script>
 <script src="memory.js"></script>
+<script src="tools.js"></script>
 <script src="chat.js"></script>
 <script src="scene.js"></script>
 <script src="pet.js"></script>

@@ -6,6 +6,7 @@
 // - 托盘：显示/隐藏、置顶、大小 75/100/125%、退出；位置和大小由 window-state 插件记住
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod agent;
 mod autostart;
 mod chat;
 mod scene;
@@ -500,7 +501,8 @@ fn main() {
             chatwin_open, chatwin_hide,
             autostart::autostart_get, autostart::autostart_set, autostart::launched_autostart,
             chat::chat_send, chat::chat_cancel, chat::chat_key_set, chat::chat_key_info,
-            scene::scene_now, scene::scene_watch
+            scene::scene_now, scene::scene_watch,
+            agent::agent_find_app, agent::agent_launch, agent::agent_open_url, agent::agent_clip_get, agent::agent_clip_set
         ])
         .setup(move |app| {
             let win = app.get_webview_window("main").expect("main window");

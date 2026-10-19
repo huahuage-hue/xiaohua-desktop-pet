@@ -103,7 +103,46 @@
       if (!what) return sc.quiet() ? '我先安静待着' : '';
       return '你在' + what + (sc.quiet() ? ' · 我会安静点' : '');
     };
-    const sync = () => toWin({ k: 'sync', busy: busyNow, partial, mood, scene: sceneLabel() });
+    const sync = () => toWin({ k: 'sync', busy: busyNow, partial, mood, scene: sceneLabel(), think: !!S.think, ask: curAsk });
+
+    /* ---------- 深度思考开关（输入栏 🧠 / 侧边窗同一个开关，存进设置） ---------- */
+    const thinkBtn = document.getElementById('cbThink');
+    const paintThink = () => { if (thinkBtn) thinkBtn.setAttribute('aria-pressed', String(!!S.think)); };
+    function setThink(on) {
+      S.think = !!on;
+      try { const s = JSON.parse(localStorage.getItem('xh-pet') || '{}'); s.think = S.think; localStorage.setItem('xh-pet', JSON.stringify(s)); } catch (_) { /* 无所谓 */ }
+      paintThink();
+      toWin({ k: 'think', on: S.think });
+      P.toast(S.think ? '深度思考：开（会想得久一点）' : '深度思考：关');
+    }
+
+    /* ---------- 帮你做事前问一句（输入栏 / 侧边窗都能答，60 秒没答算不要） ---------- */
+    const askBox = document.getElementById('cbAsk'), askText = document.getElementById('cbAskText');
+    const asks = new Map();
+    let askSeq = 0, curAsk = null;
+    function confirmAsk(text) {
+      return new Promise((resolve) => {
+        const id = ++askSeq;
+        let tm = 0;
+        const fin = (v) => {
+          if (!asks.has(id)) return;
+          asks.delete(id); clearTimeout(tm);
+          if (curAsk && curAsk.id === id) curAsk = null;
+          if (askBox && +askBox.dataset.id === id) askBox.hidden = true;
+          toWin({ k: 'askdone', id, ok: !!v });
+          resolve(!!v);
+        };
+        tm = setTimeout(() => fin(false), 60000);
+        asks.set(id, fin);
+        curAsk = { id, text };
+        if (!st.sideOpen && !st.barOpen) openBar();
+        if (askBox) { askBox.dataset.id = id; askText.textContent = text; askBox.hidden = false; }
+        toWin({ k: 'ask', id, text });
+        P.play('tilt', false, true, 1, { quiet: true, silent: true });
+      });
+    }
+    const answerAsk = (id, ok) => { const f = asks.get(+id); if (f) f(ok); };
+    const cancelAsks = () => [...asks.values()].forEach((f) => f(false));
     function updateScene() { toWin({ k: 'scene', text: sceneLabel() }); }
     function applyHide() {
       if (!invoke || !XH.scene) return;
@@ -178,9 +217,18 @@
       },
       start() { if (tip) tip.hidden = true; partial = ''; mood = ''; updateStop(true); toWin({ k: 'start' }); },
       mood(tag) { mood = tag; toWin({ k: 'mood', tag }); },
-      delta(s) { partial += s; toWin({ k: 'delta', text: s }); },
+      delta(s) { partial += s; if (input && input.placeholder.startsWith('她在')) input.placeholder = PH; toWin({ k: 'delta', text: s }); },
+      think(s) { if (input) input.placeholder = '她在认真想…'; toWin({ k: 'think', text: s }); },
+      tool(o) {
+        if (input) input.placeholder = o.state === 'run' ? '她在帮你' + o.label : PH;
+        if (o.state !== 'run') P.play(o.state === 'ok' ? 'nod' : 'tilt', false, true, 1, { quiet: true, silent: true });
+        toWin({ k: 'tool', ...o });
+      },
+      confirm: confirmAsk,
+      askCancel: cancelAsks,
       end(k, t) {
         updateStop(false);
+        cancelAsks();
         if (input) input.placeholder = PH;
         if (k === 'error') showTip(t || '出错了…');
         else if (k === 'cancel') showTip('停在半路啦');
@@ -207,11 +255,17 @@
       stopBtn.addEventListener('click', () => { XH.chat.stop(); updateStop(false); });
       retry.addEventListener('click', () => { tip.hidden = true; chatSend(lastSent); });
       window.addEventListener('blur', () => { if (st.barOpen && !input.value && !busyNow) closeBar(); });
+      if (thinkBtn) thinkBtn.addEventListener('click', () => setThink(!S.think));
+      if (askBox) askBox.addEventListener('click', (e) => { const b = e.target.closest('[data-a]'); if (b) answerAsk(askBox.dataset.id, b.dataset.a === '1'); });
+      paintThink();
     }
+    /* 提醒到点由 tools.js 自己计时 */
+    if (XH.tools) XH.tools.start(P);
     gl.addEventListener('dblclick', (e) => { if (e.button === 0 && !st.dragging) openChat(); });
     window.PET_CHAT = {
       open: openChat, close: closeAll, send: chatSend, openBar, closeBar, openSide, closeSide, setScene: updateScene,
-      state: () => ({ bar: st.barOpen, side: st.sideOpen, busy: busyNow }),
+      state: () => ({ bar: st.barOpen, side: st.sideOpen, busy: busyNow, think: !!S.think, ask: curAsk }),
+      answer: answerAsk, setThink,
     };
 
     /* 桌面场景：变化时更新徽标、全屏自动隐藏 */
@@ -301,6 +355,7 @@
         if (XH.assist) XH.assist.changed(prev);
         if (XH.scene) { XH.scene.set(S); updateScene(); applyHide(); }
         if (!S.chatOn) closeAll();
+        paintThink(); toWin({ k: 'think', on: !!S.think });
       }
       else if (c.type === 'onboard') runOnboard(true);
       else if (c.type === 'chat') openChat();
@@ -311,6 +366,8 @@
       else if (c.type === 'retry' && lastSent) chatSend(lastSent);
       else if (c.type === 'bar') openBar();
       else if (c.type === 'chatwin' && !c.open) closeSide(true);
+      else if (c.type === 'confirm') answerAsk(c.id, !!c.ok);
+      else if (c.type === 'think') setThink(!!c.on);
       else if (c.type === 'time' && XH.assist) XH.assist.sayTime();
       else if (c.type === 'weather' && XH.assist) XH.assist.sayWeather(true);
       else if (c.type === 'chime' && XH.assist) XH.assist.testChime(c.h | 0);

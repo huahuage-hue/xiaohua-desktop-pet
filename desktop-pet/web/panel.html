@@ -123,6 +123,12 @@
   .mem-add .t { flex: 1; font-size: 12px; }
   .mem-add select { width: 60px; font-size: 11px; }
   .mem-add button { flex: none; padding: 4px 8px; font-size: 11px; }
+  .todo { display: flex; flex-direction: column; gap: 4px; max-height: 180px; overflow: auto; margin-bottom: 6px; }
+  .todo-item { display: flex; align-items: flex-start; gap: 6px; padding: 4px 6px; border-radius: 8px; background: #FFFDF7; border: 1px solid #E4DCCB; font-size: 12px; }
+  .todo-item time { flex: none; color: #8B6A4E; font-size: 10.5px; padding-top: 1px; }
+  .todo-item span { flex: 1; min-width: 0; word-break: break-all; white-space: pre-wrap; }
+  .todo-item button { flex: none; padding: 1px 6px; font-size: 10px; }
+  .todo .none { color: #A38E7A; font-size: 11px; margin: 2px 0 4px; }
   footer { color: var(--ink-2); font-size: 11px; text-align: center; padding: 4px 0 var(--s3); }
 </style>
 </head>
@@ -332,6 +338,9 @@
           <button data-v="0">关</button><button data-v="1">低</button><button data-v="2">中</button><button data-v="3">高</button>
         </div>
       </div>
+      <div class="row"><label for="agentOn">让她帮我做事<small>设提醒、记便签、打开网页或程序、读写剪贴板；动电脑之前都会先问你</small></label><input class="sw" type="checkbox" id="agentOn" data-k="agentOn"></div>
+      <div class="row"><label for="think">深度思考<small>想得更久、更认真，回复慢一些也更费额度；聊天栏的灯泡也能开关</small></label><input class="sw" type="checkbox" id="think" data-k="think"></div>
+      <div class="field" data-dep="think"><span>思考模型</span><input class="t" id="thinkModel" spellcheck="false"></div>
       <div class="actions" style="margin-top: 6px"><button id="test">测试连接</button><button id="clear">清空记忆与记录</button></div>
       <p class="note" id="testNote" role="status"></p>
       <div class="actions" style="margin-top: 6px"><button id="guide" style="grid-column: span 2">重看新手引导</button></div>
@@ -364,6 +373,13 @@
     </form>
     <div class="actions" style="margin-top: 6px"><button id="memExport">导出记忆</button><button id="memClear" class="quit">清空记忆</button></div>
     <p class="note">她说「忘掉 咖啡」这样就会删掉对应条目；敏感信息不会自动记录。</p>
+  </section>
+  <section aria-labelledby="h-todo">
+    <h2 id="h-todo">提醒与便签<small style="font-weight:400; margin-left:6px">聊天时让她帮你记的</small></h2>
+    <div class="mem-head"><span>提醒</span><span class="mem-count" id="remCount"></span></div>
+    <div class="todo" id="remList"></div>
+    <div class="mem-head"><span>便签</span><span class="mem-count" id="noteCount"></span></div>
+    <div class="todo" id="noteList"></div>
   </section>
   <section aria-labelledby="h-log">
     <h2 id="h-log">聊天记录<small style="font-weight:400; margin-left:6px">最近 200 条，按天分组</small></h2>
@@ -435,6 +451,7 @@
 <script src="assets/xiaohua_wardrobe.js"></script>
 <script src="assets/app-dress.js"></script>
 <script src="memory.js"></script>
+<script src="tools.js"></script>
 <script src="chat.js"></script>
 <script src="scene.js"></script>
 <script>
@@ -626,6 +643,9 @@
     $('model').value = S.model || P.model;
     $('model').placeholder = P.model || '模型名';
     $('keyRow').style.display = P.nokey ? 'none' : '';
+    const th = (XH.chat.THINK || {})[S.provider] || {};
+    $('thinkModel').value = S.thinkModel || '';
+    $('thinkModel').placeholder = th.model || S.model || P.model || '同聊天模型';
     keyStore.info(S.provider).then(paintKey).catch(() => paintKey(null));
     $('testNote').textContent = '';
   };
@@ -636,6 +656,35 @@
   prov.addEventListener('change', () => { S.provider = prov.value; S.base = ''; S.model = ''; save(); paintProv(); });
   $('base').addEventListener('change', () => { const P = PV[S.provider]; const v = $('base').value.trim(); S.base = v === P.base ? '' : v; save(); });
   $('model').addEventListener('change', () => { const P = PV[S.provider]; const v = $('model').value.trim(); S.model = v === P.model ? '' : v; save(); });
+  $('thinkModel').addEventListener('change', () => { S.thinkModel = $('thinkModel').value.trim(); save(); });
+
+  /* ---------- 提醒与便签（tools.js 存在 localStorage，这里只看和删） ---------- */
+  const paintTodo = () => {
+    if (!XH.tools) return;
+    const fill = (box, cnt, items, when, kind) => {
+      box.textContent = '';
+      cnt.textContent = items.length ? items.length + ' 条' : '';
+      if (!items.length) { const p = document.createElement('p'); p.className = 'none'; p.textContent = kind === 'rem' ? '还没有提醒。和她说「十分钟后提醒我喝水」试试' : '还没有便签。和她说「帮我记一下……」试试'; box.appendChild(p); return; }
+      items.forEach((it) => {
+        const row = document.createElement('div'); row.className = 'todo-item';
+        const tm = document.createElement('time'); tm.textContent = XH.tools.whenText(when(it));
+        const sp = document.createElement('span'); sp.textContent = it.text;
+        const del = document.createElement('button'); del.type = 'button'; del.textContent = '删'; del.setAttribute('aria-label', '删除：' + it.text);
+        del.addEventListener('click', () => { (kind === 'rem' ? XH.tools.reminders : XH.tools.notes).remove(it.id); paintTodo(); });
+        row.append(tm, sp, del); box.appendChild(row);
+      });
+    };
+    fill($('remList'), $('remCount'), XH.tools.reminders.list(), (r) => r.at, 'rem');
+    fill($('noteList'), $('noteCount'), XH.tools.notes.list().slice().reverse(), (n) => n.t, 'note');
+  };
+  paintTodo();
+  window.addEventListener('storage', (e) => { if (e.key === 'xh-reminders' || e.key === 'xh-notes') paintTodo(); });
+  /* 聊天栏的灯泡改了深度思考：同步过来，免得面板下次保存时又改回去 */
+  window.addEventListener('storage', (e) => {
+    if (e.key !== 'xh-pet') return;
+    try { const s = JSON.parse(e.newValue || '{}'); if ('think' in s && !!s.think !== !!S.think) { S.think = !!s.think; $('think').checked = S.think; paintDeps(); } } catch (_) { /* 无所谓 */ }
+  });
+  setInterval(paintTodo, 30000); // 到点的提醒会被拿掉
   $('keyF').addEventListener('submit', (e) => {
     e.preventDefault();
     keyStore.set(S.provider, $('key').value.trim()).then((i) => { $('key').value = ''; paintKey(i); }).catch((er) => { $('keyNote').textContent = '保存失败：' + er; });

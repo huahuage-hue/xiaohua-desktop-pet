@@ -1,7 +1,9 @@
-/* 小嬅桌宠 · AI 对话（v0.5.0）
+/* 小嬅桌宠 · AI 对话（v0.6.0）
    - 兼容 OpenAI /chat/completions 流式接口；Tauri 里由 Rust 发请求（密钥只在 Rust 那边），普通浏览器调试时直接 fetch
    - 模型回复以 [情绪] 开头 → 播对应动作，标签不显示
    - 记忆 v2：profile / facts / events / promises 存在 localStorage（memory.js），每 3 轮后台抽一次
+   - v0.6.0 深度思考：换思考模型 / 打开思考参数，思考过程走 hooks.think（不进记录）
+   - v0.6.0 帮你做事：带上 tools.js 的工具定义；模型要调用时本地执行（需要时先问用户），结果回填后再请求，最多 4 步
    - 界面：回复总是走头顶气泡（hooks.card 为真时除外，v0.6.0 起不再使用）；hooks 另把进度转给漫画输入栏 / 侧边聊天窗 */
 (function () {
   'use strict';
@@ -17,20 +19,33 @@
     ollama: { name: '本地 Ollama', base: 'http://127.0.0.1:11434/v1', model: 'qwen2.5:7b', nokey: true },
     custom: { name: '自定义', base: '', model: '' },
   };
-  /* chatMode（v0.6.0）：双击她时打开 comic 漫画输入栏 / side 侧边聊天窗 */
-  const DEF_CHAT = { chatOn: false, provider: 'deepseek', base: '', model: '', persona: 'self', len: 's', nickname: '', proactive: 2, chatMode: 'comic' };
+  /* 深度思考：各家的思考模型 / 开关参数（thinkModel 留空时用这里的默认值；没写 model 就沿用聊天模型） */
+  const THINK = {
+    deepseek: { model: 'deepseek-reasoner' },
+    qwen: { extra: { enable_thinking: true } },
+    kimi: { model: 'kimi-k2-thinking' },
+    zhipu: { model: 'glm-4.5-flash', extra: { thinking: { type: 'enabled' } } },
+    ollama: {}, // 模型自己在正文里输出 <think>…</think>
+    custom: {},
+  };
+  /* chatMode（v0.6.0）：双击她时打开 comic 漫画输入栏 / side 侧边聊天窗；think：深度思考；agentOn：让她帮我做事 */
+  const DEF_CHAT = { chatOn: false, provider: 'deepseek', base: '', model: '', persona: 'self', len: 's', nickname: '', proactive: 2, chatMode: 'comic', think: false, thinkModel: '', agentOn: true };
   const TAGS = ['开心', '害羞', '生气', '困', '思考', '惊讶', '疑惑', '难过', '点头', '打招呼', '挥手', '得意', '无聊', '星星眼', '嘟嘴', '猫嘴'];
-  const LOG_KEY = 'xh-chat-log', MAX_TURNS = 10;
+  const LOG_KEY = 'xh-chat-log', MAX_TURNS = 10, MAX_STEPS = 4;
 
   const cfg = (S) => {
-    const s = { ...DEF_CHAT, ...(S || {}) }, p = PROVIDERS[s.provider] || PROVIDERS.custom;
-    return { ...s, P: p, base: (s.provider === 'custom' || s.base ? s.base : '') || p.base, model: s.model || p.model };
+    const s = { ...DEF_CHAT, ...(S || {}) }, p = PROVIDERS[s.provider] || PROVIDERS.custom, th = THINK[s.provider] || {};
+    const model = s.model || p.model;
+    return { ...s, P: p, base: (s.provider === 'custom' || s.base ? s.base : '') || p.base, model, thinkModel: s.thinkModel || th.model || model, thinkExtra: th.extra || null };
   };
 
   const memText = (q) => (XH.memory ? XH.memory.digest(q) : '');
   const sceneText = () => (XH.scene && XH.scene.hint ? XH.scene.hint() : '');
 
-  function system(c, q) {
+  const TOOL_LINE = '你可以用工具帮用户做一些简单的事：看时间、查天气、设提醒、记便签、打开网页或浏览器搜索、打开电脑上的程序、读写剪贴板。' +
+    '用户想让你做这些事时直接调用工具；需要确认的工具会自动弹出确认，你不用先口头问。工具结果回来后用一两句话告诉用户结果，不要编造结果。' +
+    '工具做不到的事（删文件、运行命令、操作别的软件里面的内容）就老实说做不到。';
+  function system(c, q, o) {
     const now = new Date();
     const when = `现在是${now.getFullYear()}年${now.getMonth() + 1}月${now.getDate()}日 星期${'日一二三四五六'[now.getDay()]} ${now.getHours()}:${String(now.getMinutes()).padStart(2, '0')}。`;
     const len = c.len === 'm' ? '每次回复控制在 100 字以内' : '每次回复控制在 40 字以内，一两句话';
@@ -41,10 +56,11 @@
     const scene = sceneText();
     const sceneLine = scene ? `\n${scene}` : '';
     const see = '你只能模糊感觉到用户正在用哪类软件，看不到具体内容，不要说得像在偷看屏幕。';
-    if (c.persona === 'plain') return `你是住在用户电脑桌面上的小助手“小嬅”。回答准确、直接、简洁，用中文。${nick}${memLine}${sceneLine}${see}${len}。不要使用 Markdown、列表或表情符号。${tag}${when}`;
+    const can = o && o.tools ? TOOL_LINE : '你能看到的只有对话内容，不能操作电脑、不能上网。';
+    if (c.persona === 'plain') return `你是住在用户电脑桌面上的小助手“小嬅”。回答准确、直接、简洁，用中文。${nick}${memLine}${sceneLine}${see}${can}${len}。不要使用 Markdown、列表或表情符号。${tag}${when}`;
     return `你是“小嬅”，一个住在用户电脑桌面上的小女孩桌宠：金棕色长发、头戴黑色蝴蝶结、穿白衬衫和格子裙，性格活泼、有点害羞、偶尔小傲娇，喜欢甜点和下雨天。` +
       `用中文口语和用户聊天，语气可爱自然，可以用“呀、啦、哦、嘛”，但不要每句都用；不知道的事情就老实说不知道，不要编造。${nick}${memLine}${sceneLine}${see}` +
-      `你能看到的只有对话内容，不能操作电脑、不能上网。${len}。不要使用 Markdown、列表或表情符号。${tag}${when}`;
+      `${can}${len}。不要使用 Markdown、列表或表情符号。${tag}${when}`;
   }
 
   const loadLog = () => { try { const a = JSON.parse(localStorage.getItem(LOG_KEY) || '[]'); return Array.isArray(a) ? a : []; } catch (_) { return []; } };
@@ -65,64 +81,114 @@
   }
   const clean = (s) => s.replace(/[\[【](开心|害羞|生气|困|思考|惊讶|疑惑|难过|点头|打招呼|挥手|得意|无聊|星星眼|嘟嘴|猫嘴)[\]】]/g, '');
 
+  /* 正文开头是 <think>…</think>（Ollama 等本地思考模型）：这段转给 onThink，其余照常 */
+  function thinkSplit(onThink, onText) {
+    let mode = 'head', buf = '';
+    return (s) => {
+      buf += s;
+      if (mode === 'head') {
+        const t = buf.replace(/^\s+/, '');
+        if (!t) return;
+        if (t.startsWith('<think>')) { mode = 'think'; buf = t.slice(7); }
+        else if ('<think>'.startsWith(t)) return; // 还没收齐
+        else { mode = 'text'; const x = buf; buf = ''; onText(x); return; }
+      }
+      if (mode === 'think') {
+        const i = buf.indexOf('</think>');
+        if (i >= 0) { const th = buf.slice(0, i), rest = buf.slice(i + 8).replace(/^\s+/, ''); buf = ''; mode = 'text'; if (th) onThink(th); if (rest) onText(rest); }
+        else if (buf.length > 8) { onThink(buf.slice(0, -8)); buf = buf.slice(-8); }
+        return;
+      }
+      const x = buf; buf = ''; onText(x);
+    };
+  }
+
   /* ---------- 传输 ---------- */
-  /* 事件会广播给所有窗口（桌宠 + 面板），序号起点随机错开，免得互相认错 */
+  /* 事件会广播给所有窗口（桌宠 + 面板 + 聊天窗），序号起点随机错开，免得互相认错 */
   let seq = ((Math.random() * 1e6) | 0) * 1000 + 1;
   const handlers = new Map();
   if (T) T.event.listen('pet://chat', (e) => { const p = e.payload, h = handlers.get(p.id); if (h) h(p.kind, p.text); });
+  const FINAL = { done: 1, error: 1, cancel: 1 };
 
   /* 浏览器调试：直接 fetch（需要对方允许跨域，假 SSE 服务 / Ollama 可以） */
-  async function browserSend(c, messages, test, key, emit, maxTokens) {
+  async function browserSend(c, messages, test, key, emit, maxTokens, opt) {
     const ctl = new AbortController(), to = setTimeout(() => ctl.abort(), 30000);
     try {
+      const body = { model: c.model, messages, stream: !test, max_tokens: maxTokens || (test ? 16 : c.len === 'm' ? 400 : 160), temperature: 0.8 };
+      if (!test && opt && opt.tools) body.tools = opt.tools;
+      if (!test && opt && opt.extra) Object.assign(body, opt.extra);
       const r = await fetch(c.base.replace(/\/+$/, '') + '/chat/completions', {
         method: 'POST', signal: ctl.signal,
         headers: { 'Content-Type': 'application/json', ...(key ? { Authorization: 'Bearer ' + key } : {}) },
-        body: JSON.stringify({ model: c.model, messages, stream: !test, max_tokens: maxTokens || (test ? 16 : c.len === 'm' ? 400 : 160), temperature: 0.8 }),
+        body: JSON.stringify(body),
       });
-      if (!r.ok) { const m = { 401: '密钥好像不对哦，去控制面板检查一下吧', 403: '密钥好像不对哦，去控制面板检查一下吧', 402: '账户余额不够了…', 404: '找不到这个模型，检查一下模型名吧', 429: '等一下下，我有点回不过来了…' }; return emit('error', m[r.status] || (r.status >= 500 ? '对面的服务器好像累了，过会儿再试试' : `出错了（${r.status}）`)); }
+      if (!r.ok) {
+        const b = (await r.text().catch(() => '')).toLowerCase();
+        if ((r.status === 400 || r.status === 422) && /tool|function/.test(b)) return emit('error', '__NO_TOOLS__');
+        if ((r.status === 400 || r.status === 422) && /thinking|reasoning/.test(b)) return emit('error', '__NO_THINK__');
+        const m = { 401: '密钥好像不对哦，去控制面板检查一下吧', 403: '密钥好像不对哦，去控制面板检查一下吧', 402: '账户余额不够了…', 404: '找不到这个模型，检查一下模型名吧', 429: '等一下下，我有点回不过来了…' };
+        return emit('error', m[r.status] || (r.status >= 500 ? '对面的服务器好像累了，过会儿再试试' : `出错了（${r.status}）`));
+      }
       if (test) { const j = await r.json(); return emit('done', (j.choices && j.choices[0].message.content) || '（连上了）'); }
-      const rd = r.body.getReader(), dec = new TextDecoder();
-      let buf = '';
-      for (;;) {
+      const rd = r.body.getReader(), dec = new TextDecoder(), calls = [];
+      let buf = '', fin = false;
+      const line1 = (line) => {
+        if (!line.startsWith('data:')) return;
+        const d = line.slice(5).trim();
+        if (d === '[DONE]') { fin = true; return; }
+        let j; try { j = JSON.parse(d); } catch (_) { return; }
+        const dl = (j.choices && j.choices[0] && j.choices[0].delta) || {};
+        if (dl.content) emit('delta', dl.content);
+        const th = dl.reasoning_content || dl.reasoning; if (th) emit('think', th);
+        (dl.tool_calls || []).forEach((tc) => {
+          const i = tc.index != null ? tc.index : (tc.id ? calls.length : Math.max(0, calls.length - 1));
+          const x = calls[i] || (calls[i] = { id: '', name: '', arguments: '' });
+          if (tc.id) x.id = tc.id;
+          if (tc.function && tc.function.name) x.name += tc.function.name;
+          if (tc.function && tc.function.arguments) x.arguments += tc.function.arguments;
+        });
+      };
+      while (!fin) {
         const { value, done } = await rd.read();
         if (done) break;
         buf += dec.decode(value, { stream: true });
         let i;
-        while ((i = buf.indexOf('\n')) >= 0) {
-          const line = buf.slice(0, i).trim(); buf = buf.slice(i + 1);
-          if (!line.startsWith('data:')) continue;
-          const d = line.slice(5).trim();
-          if (d === '[DONE]') { emit('done', ''); return; }
-          try { const t = JSON.parse(d).choices[0].delta.content; if (t) emit('delta', t); } catch (_) { /* 不是 JSON 就跳过 */ }
-        }
+        while (!fin && (i = buf.indexOf('\n')) >= 0) { const line = buf.slice(0, i).trim(); buf = buf.slice(i + 1); line1(line); }
       }
+      const list = calls.filter((x) => x && x.name);
+      if (list.length) emit('tool', JSON.stringify(list));
       emit('done', '');
     } catch (e) {
       emit('error', e.name === 'AbortError' ? '等了好久都没有回音…' : '网络好像断了…连不上对面');
     } finally { clearTimeout(to); }
   }
 
-  /* 发一次请求；emit(kind, text)。返回取消函数 */
-  function request(c, messages, test, emit, maxTokens) {
+  /* 发一次请求；emit(kind, text)，kind：delta / think / tool / done / error / cancel。opt = {tools, extra}。返回取消函数 */
+  function request(c, messages, test, emit, maxTokens, opt) {
     const id = seq++;
     let over = false, timer = 0;
-    const fin = (k, t) => { if (over) return; if (k !== 'delta') { over = true; clearTimeout(timer); handlers.delete(id); } emit(k, t); };
-    /* 总超时：30 秒内没开始回复就放弃 */
+    const fin = (k, t) => { if (over) return; if (FINAL[k]) { over = true; clearTimeout(timer); handlers.delete(id); } emit(k, t); };
+    /* 总超时：30 秒内没有任何新动静就放弃（思考 / 工具分片也算动静） */
     const arm = () => { clearTimeout(timer); timer = setTimeout(() => { if (invoke) invoke('chat_cancel').catch(() => {}); fin('error', '等了好久都没有回音…'); }, 30000); };
     arm();
+    const on = (k, t) => { if (!FINAL[k]) arm(); fin(k, t); };
+    const tokens = maxTokens || (c.len === 'm' ? 400 : 160);
     if (invoke) {
-      handlers.set(id, (k, t) => { if (k === 'delta') arm(); fin(k, t); });
-      invoke('chat_send', { req: { id, provider: c.provider, base: c.base, model: c.model, messages, max_tokens: maxTokens || (c.len === 'm' ? 400 : 160), test } })
-        .catch((e) => fin('error', String(e)));
+      handlers.set(id, on);
+      const req = { id, provider: c.provider, base: c.base, model: c.model, messages, max_tokens: tokens, test };
+      if (opt && opt.tools) req.tools = opt.tools;
+      if (opt && opt.extra) req.extra = opt.extra;
+      invoke('chat_send', { req }).catch((e) => fin('error', String(e)));
     } else {
-      browserSend(c, messages, test, sessionStorage.getItem('xh-key-' + c.provider) || '', (k, t) => { if (k === 'delta') arm(); fin(k, t); }, maxTokens);
+      browserSend(c, messages, test, sessionStorage.getItem('xh-key-' + c.provider) || '', on, tokens, opt);
     }
     return () => { if (invoke) invoke('chat_cancel').catch(() => {}); fin('cancel', ''); };
   }
 
   /* ---------- 长期记忆抽取 ---------- */
   let cancel = null, extracting = false, memSince = 0, memCancel = null;
+  /* 本次运行里确认不支持工具 / 思考参数的模型，不再带这些参数 */
+  const noTools = {}, noThink = {};
 
   const EXTRACT_PROMPT = '你负责为桌宠“小嬅”整理长期记忆。从下面的对话里只提取“以后还用得上”的信息：用户的称呼、生日、城市、工作/学习、喜好、忌口，稳定的事实、最近发生的事、约定。' +
     '不要提取一次性的寒暄、情绪、玩笑、对话里的临时问题；不要记录密码、账号、身份证、银行卡、详细住址、财务数据、疾病诊断等敏感信息；不要推测。' +
@@ -141,6 +207,7 @@
     const guard = setTimeout(() => { extracting = false; memCancel = null; }, 60000);
     memCancel = request(c, messages, false, (k, t) => {
       if (k === 'delta') { out += t; return; }
+      if (!FINAL[k]) return;
       clearTimeout(guard); extracting = false; memCancel = null;
       if (k !== 'done') return;
       out = out.replace(/```(?:json)?/gi, '').trim();
@@ -173,7 +240,7 @@
   }
 
   XH.chat = {
-    PROVIDERS, DEF_CHAT, cfg, loadLog, saveLog,
+    PROVIDERS, THINK, DEF_CHAT, cfg, loadLog, saveLog,
     loadMemory: () => (XH.memory ? XH.memory.digest('') : ''),
     clearMemory: () => { if (XH.memory) XH.memory.clear(); },
     clear: () => {
@@ -186,9 +253,10 @@
     test(S, cb) {
       const c = cfg(S);
       if (!c.base || !c.model) return cb(false, '请先填写接口地址和模型名');
-      request(c, [{ role: 'user', content: '你好，回复“好”即可' }], true, (k, t) => { if (k !== 'delta') cb(k === 'done', t); });
+      request(c, [{ role: 'user', content: '你好，回复“好”即可' }], true, (k, t) => { if (FINAL[k]) cb(k === 'done', t); });
     },
-    /* 和她说一句：P = XH.pet；hooks = {user, start, delta, mood, end, card} */
+    /* 和她说一句：P = XH.pet；hooks = {user, start, think, tool, confirm, mood, delta, end, card}
+       hooks.tool({id, name, label, state: run|ok|no})；hooks.confirm(text) → Promise<bool> */
     send(text, S, P, hooks) {
       text = String(text || '').trim();
       if (!text) return;
@@ -207,9 +275,17 @@
         return;
       }
 
+      /* 这一轮怎么问：深度思考时不带工具（多数思考模型不支持 tools） */
+      const think = !!S.think;
+      const mkey = c.base + '|' + (think ? c.thinkModel : c.model);
+      let tools = !think && S.agentOn !== false && !!XH.tools && !noTools[mkey];
+      let extra = think && c.thinkExtra && !noThink[mkey] ? c.thinkExtra : null;
+      const rc = { ...c, model: think ? c.thinkModel : c.model };
+      const tokens = think ? 4096 : tools ? Math.max(600, c.len === 'm' ? 400 : 160) : 0;
+
       const log = loadLog();
       const hist = log.slice(-MAX_TURNS * 2).map((m) => ({ role: m.role, content: m.content }));
-      const messages = [{ role: 'system', content: system(c, text) }, ...hist, { role: 'user', content: text }];
+      const messages = [{ role: 'system', content: system(c, text, { tools }) }, ...hist, { role: 'user', content: text }];
       log.push({ role: 'user', content: text, t: Date.now() }); saveLog(log);
       if (H.user) H.user(text);
       P.wake(); P.touch();
@@ -217,29 +293,83 @@
       const B = H.card ? null : XH.bubble;
       if (B) B.chatStart();
       if (H.start) H.start();
-      let reply = '', mood = '';
+
+      let reply = '', mood = '', step = 0, over = false, stopped = false, curReq = null;
+      const done = [];
       const feed = tagParser((tag) => { mood = tag; P.emote(tag); if (H.mood) H.mood(tag); }, (s) => {
         s = clean(s); if (!s) return; reply += s;
         if (B) B.append(s);
         if (H.delta) H.delta(s);
       });
-      cancel = request(c, messages, false, (k, t) => {
-        if (k === 'delta') return feed(t);
-        cancel = null;
+      const onThink = (s) => { if (H.think) H.think(s); };
+
+      const finish = (k, t) => {
+        if (over) return;
+        over = true; cancel = null; curReq = null;
         if (k === 'done') {
           reply = reply.trim();
-          if (!reply) { reply = '……'; if (B) B.append('……'); if (H.delta) H.delta('……'); }
+          if (!reply) { reply = done.length ? '好啦～' : '……'; if (B) B.append(reply); if (H.delta) H.delta(reply); }
           if (B) B.chatEnd();
-          const l = loadLog(); l.push({ role: 'assistant', content: reply, mood, t: Date.now() }); saveLog(l);
+          const l = loadLog(); l.push({ role: 'assistant', content: reply, mood, t: Date.now(), ...(done.length ? { tools: done } : {}) }); saveLog(l);
           memSince++;
           if (memSince >= 3) setTimeout(() => extract(c), 1400);
         } else if (k === 'error') {
-          /* 出错：把刚才那句撤回（下次重发不会重复） */
+          /* 出错：把刚才那句撤回（下次重发不会重复）；已经做完的动作留个记录 */
           const l = loadLog(); if (l.length && l[l.length - 1].role === 'user') { l.pop(); saveLog(l); }
           if (B) { B.hide(true); setTimeout(() => P.say(t || '出错了…', { type: 'say', force: true }, 'daze'), 300); }
         } else if (B) B.hide();
         if (H.end) H.end(k, k === 'error' ? t : reply);
-      });
+      };
+
+      async function runTools(calls, stepText) {
+        const tc = calls.map((x, i) => ({ id: x.id || ('call_' + Date.now().toString(36) + i), type: 'function', function: { name: x.name, arguments: x.arguments || '{}' } }));
+        messages.push({ role: 'assistant', content: stepText || '', tool_calls: tc });
+        for (const x of tc) {
+          if (stopped) return;
+          const name = x.function.name, label0 = (XH.tools.NAME[name] || name) + '…';
+          if (H.tool) H.tool({ id: x.id, name, label: label0, state: 'run' });
+          const r = await XH.tools.run({ id: x.id, name, arguments: x.function.arguments }, { S, confirm: (q) => (stopped || !H.confirm ? Promise.resolve(false) : H.confirm(q)) });
+          if (stopped) return;
+          if (H.tool) H.tool({ id: x.id, name, label: r.label, state: r.ok ? 'ok' : 'no' });
+          done.push({ n: r.label, ok: r.ok });
+          messages.push({ role: 'tool', tool_call_id: x.id, content: r.content });
+        }
+        P.play('think', false, true, 1, { quiet: true, silent: true });
+      }
+
+      function turn() {
+        if (stopped || over) return;
+        let stepText = '', calls = null;
+        /* 做完事后接着说的话另起一行，不和前面那句粘在一起 */
+        const split = thinkSplit(onThink, (s) => { if (!stepText && step && reply.trim()) feed('\n'); stepText += s; feed(s); });
+        const opt = { tools: tools && step < MAX_STEPS ? XH.tools.defs() : null, extra };
+        curReq = request(rc, messages, false, (k, t) => {
+          if (k === 'delta') return split(t);
+          if (k === 'think') return onThink(t);
+          if (k === 'tool') { try { calls = JSON.parse(t); } catch (_) { calls = null; } return; }
+          curReq = null;
+          if (stopped || over) return;
+          /* 模型不认工具 / 思考参数：记住，去掉参数重来一次 */
+          if (k === 'error' && t === '__NO_TOOLS__' && opt.tools) { noTools[mkey] = true; tools = false; messages[0].content = system(c, text, { tools: false }); return turn(); }
+          if (k === 'error' && t === '__NO_THINK__' && opt.extra) { noThink[mkey] = true; extra = null; return turn(); }
+          if (k === 'error' && /^__NO_/.test(t)) t = '这个模型好像不支持这个功能…换个模型试试';
+          if (k === 'done' && calls && calls.length && opt.tools) {
+            step++;
+            runTools(calls, stepText).then(() => turn(), (e) => finish('error', String(e)));
+            return;
+          }
+          finish(k, t);
+        }, tokens, opt);
+      }
+
+      cancel = () => {
+        if (over) return;
+        stopped = true;
+        if (H.askCancel) H.askCancel();
+        if (curReq) curReq(); // request 会回 cancel，但 stopped 已置位，这里直接收尾
+        finish('cancel', '');
+      };
+      turn();
     },
     /* 主动搭话：闲下来自己开一句；返回 false 表示当前不方便 */
     proactive(S, P) {
@@ -256,8 +386,10 @@
       B.chatStart();
       let reply = '', mood = '';
       const feed = tagParser((tag) => { mood = tag; P.emote(tag); }, (s) => { s = clean(s); if (!s) return; reply += s; B.append(s); });
+      const split = thinkSplit(() => {}, feed);
       cancel = request(c, messages, false, (k, t) => {
-        if (k === 'delta') return feed(t);
+        if (k === 'delta') return split(t);
+        if (!FINAL[k]) return;
         cancel = null;
         if (k === 'done') {
           reply = reply.trim();
