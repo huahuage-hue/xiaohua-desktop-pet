@@ -129,6 +129,26 @@
   .todo-item span { flex: 1; min-width: 0; word-break: break-all; white-space: pre-wrap; }
   .todo-item button { flex: none; padding: 1px 6px; font-size: 10px; }
   .todo .none { color: #A38E7A; font-size: 11px; margin: 2px 0 4px; }
+  /* DDL（v0.7.0）：左边色条按紧急程度 */
+  .ddl-list { display: flex; flex-direction: column; gap: 5px; max-height: 300px; overflow: auto; }
+  .ddl-list .none { color: var(--ink-2); font-size: 12px; margin: 4px 0; }
+  .ddl-item { display: flex; align-items: flex-start; gap: 6px; padding: 6px 7px; background: #fff; border: 1px solid var(--line); border-left: 4px solid #CBB098; border-radius: 8px; }
+  .ddl-item.warm { border-left-color: #E2BC52; }
+  .ddl-item.hot { border-left-color: #D9822B; }
+  .ddl-item.over { border-left-color: #C0504D; background: #FFF6F4; }
+  .ddl-item.done { opacity: .55; border-left-color: #A9B79B; }
+  .ddl-item.done b { text-decoration: line-through; }
+  .ddl-main { flex: 1; min-width: 0; }
+  .ddl-main b { font-size: 12.5px; font-weight: 600; word-break: break-all; }
+  .ddl-main small { display: block; color: var(--ink-2); font-size: 11px; line-height: 1.45; word-break: break-all; }
+  .ddl-main .left { color: var(--ink); font-weight: 600; }
+  .ddl-item.hot .left, .ddl-item.over .left { color: #B5462E; }
+  .ddl-tag { display: inline-block; margin-left: 4px; padding: 0 6px; border-radius: 99px; font-size: 10px; background: var(--accent-soft); color: #7A5A40; vertical-align: 1px; }
+  .ddl-tag.lv3 { background: #F6D9D3; color: #A2463E; } .ddl-tag.lv2 { background: #F7E8C6; color: #8A6420; }
+  .ddl-item button { flex: none; padding: 2px 6px; font-size: 11px; }
+  .ddl-item .ck { width: 24px; height: 24px; padding: 0; border-radius: 50%; }
+  .ddl-when { display: flex; gap: 6px; } .ddl-when .t { flex: 1; min-width: 0; }
+  .ddl-rem { display: flex; flex-wrap: wrap; gap: 5px; }
   .upd-bar { height: 8px; margin: 8px 0 2px; border-radius: 99px; background: #EFE5D6; overflow: hidden; border: 1px solid #E0CFB9; }
   .upd-bar i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, #C9A88A, #8B6A4E); transition: width .2s; }
   .upd-notes { margin: 6px 0 0; padding: 6px 8px; max-height: 140px; overflow: auto; white-space: pre-wrap; word-break: break-word;
@@ -147,6 +167,7 @@
 <button role="tab" id="t-dress" aria-controls="p-dress" aria-selected="false">换装</button>
 <button role="tab" id="t-assist" aria-controls="p-assist" aria-selected="false">小助手</button>
   <button role="tab" id="t-chat" aria-controls="p-chat" aria-selected="false">对话</button>
+  <button role="tab" id="t-campus" aria-controls="p-campus" aria-selected="false">校园</button>
   <button role="tab" id="t-set" aria-controls="p-set" aria-selected="false">设置</button>
 </nav>
 
@@ -419,6 +440,33 @@
   </section>
 </div>
 
+<!-- ===== 校园（v0.7.0）===== -->
+<div role="tabpanel" id="p-campus" aria-labelledby="t-campus" hidden>
+  <section aria-labelledby="h-ddl">
+    <h2 id="h-ddl">DDL<small style="font-weight:400; margin-left:6px" id="ddlSum"></small></h2>
+    <div class="ddl-list" id="ddlList" aria-live="polite"></div>
+    <div class="row"><label for="ddlShowDone">显示已完成的</label><input class="sw" type="checkbox" id="ddlShowDone"></div>
+  </section>
+  <section aria-labelledby="h-ddlf">
+    <h2 id="h-ddlf"><span id="ddlFormTitle">新建 DDL</span></h2>
+    <form id="ddlForm" autocomplete="off">
+      <div class="field"><span>标题</span><input class="t" id="ddlTitle" maxlength="60" placeholder="比如：高数第三章作业" required></div>
+      <div class="field"><span>截止</span><div class="ddl-when"><input class="t" type="date" id="ddlDate" required aria-label="截止日期"><input class="t" type="time" id="ddlTime" value="23:59" required aria-label="截止时间"></div></div>
+      <div class="field"><span>课程</span><input class="t" id="ddlCourse" maxlength="20" placeholder="可不填" list="ddlCourses"><datalist id="ddlCourses"></datalist></div>
+      <div class="field"><span>重要</span><div><div class="seg" id="ddlLevel" role="group" aria-label="重要程度"><button type="button" data-v="1">普通</button><button type="button" data-v="2">重要</button><button type="button" data-v="3">很急</button></div></div></div>
+      <div class="field"><span>提醒</span><div class="ddl-rem" id="ddlRemind" role="group" aria-label="提前多久提醒"></div></div>
+      <div class="field"><span>备注</span><input class="t" id="ddlNoteIn" maxlength="300" placeholder="可不填"></div>
+      <div class="actions" style="margin-top:6px"><button type="submit" class="pri" id="ddlSave">添加</button><button type="button" id="ddlCancel">清空</button></div>
+      <p class="note" id="ddlMsg" role="status" aria-live="polite"></p>
+    </form>
+  </section>
+  <section aria-labelledby="h-ddls">
+    <h2 id="h-ddls">DDL 提醒</h2>
+    <div class="row"><label for="ddlMorning">每天早上汇总<small>8 点后第一次用电脑时，告诉你今天和明天要交什么</small></label><input class="sw" type="checkbox" id="ddlMorning" data-k="ddlMorning"></div>
+    <p class="note">新建时默认提前 3 天、1 天、3 小时、1 小时提醒；免打扰时段只提醒 1 小时以内的；过了截止时间还没打勾，她会问你一次。也可以直接跟她说「下周三晚上十点交高数作业」「高数作业交了」。</p>
+  </section>
+</div>
+
 <!-- ===== 设置 ===== -->
 <div role="tabpanel" id="p-set" aria-labelledby="t-set" hidden>
   <section aria-labelledby="h-idle">
@@ -483,6 +531,7 @@
 <script src="assets/app-dress.js"></script>
 <script src="memory.js"></script>
 <script src="tools.js"></script>
+<script src="ddl.js"></script>
 <script src="chat.js"></script>
 <script src="vision.js"></script>
 <script src="scene.js"></script>
@@ -491,7 +540,7 @@
   'use strict';
   const T = window.__TAURI__, invoke = T ? T.core.invoke : null;
   const $ = (id) => document.getElementById(id);
-  const DEF = { idleFreq: 2, bubbles: true, follow: true, props: true, react: true, scale: 100, top: true, sfx: true, vol: 25, voice: true, swing: 2, outfit: 'classic', acc: {}, autoDress: true, festival: true, ...XH.DEF_ASSIST, ...XH.DEF_SCENE, ...XH.chat.DEF_CHAT, ...XH.DEF_VISION, autoUpdate: true };
+  const DEF = { idleFreq: 2, bubbles: true, follow: true, props: true, react: true, scale: 100, top: true, sfx: true, vol: 25, voice: true, swing: 2, outfit: 'classic', acc: {}, autoDress: true, festival: true, ...XH.DEF_ASSIST, ...XH.DEF_SCENE, ...XH.chat.DEF_CHAT, ...XH.DEF_VISION, ...XH.DEF_DDL, autoUpdate: true };
   /* sv：设置版本。v0.1.3 起默认音量 40 → 25；v0.3.0 去掉漫游，加换装；v0.5.0 加场景感知；v0.6.0 加聊天方式 chatMode */
   const load = () => {
     let s; try { s = JSON.parse(localStorage.getItem('xh-pet') || '{}'); } catch (_) { s = {}; }
@@ -752,6 +801,86 @@
     note.textContent = r.ok ? '她看到：' + r.text : '没看成：' + r.why;
   });
   $('vReset').addEventListener('click', () => { XH.vision.resetConsent(); $('vTestNote').textContent = '好，下次看屏幕之前会再问你一次。'; });
+
+  /* ---------- DDL（v0.7.0，ddl.js 存在 localStorage，提醒在桌宠窗口里跑） ---------- */
+  const D = XH.ddl;
+  let ddlEdit = null, ddlLevel = 1, ddlRem = new Set((S.ddlRemind || D.DEF.ddlRemind).map(Number));
+  const ddlMsg = (t) => { $('ddlMsg').textContent = t || ''; };
+  const pad2 = (n) => String(n).padStart(2, '0');
+  const paintLevel = () => $('ddlLevel').querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(+b.dataset.v === ddlLevel)));
+  const paintRem = () => {
+    const box = $('ddlRemind'); box.textContent = '';
+    Object.keys(D.REMIND_NAME).map(Number).sort((a, b) => b - a).forEach((m) => {
+      const b = document.createElement('button'); b.type = 'button'; b.className = 'chip'; b.textContent = '提前 ' + D.REMIND_NAME[m];
+      b.setAttribute('aria-pressed', String(ddlRem.has(m)));
+      b.addEventListener('click', () => { if (ddlRem.has(m)) ddlRem.delete(m); else ddlRem.add(m); paintRem(); });
+      box.appendChild(b);
+    });
+  };
+  function ddlReset() {
+    ddlEdit = null; ddlLevel = 1; ddlRem = new Set((S.ddlRemind || D.DEF.ddlRemind).map(Number));
+    $('ddlForm').reset();
+    const d = new Date(); $('ddlDate').value = `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`; $('ddlTime').value = '23:59';
+    $('ddlFormTitle').textContent = '新建 DDL'; $('ddlSave').textContent = '添加'; $('ddlCancel').textContent = '清空';
+    paintLevel(); paintRem();
+  }
+  function ddlFill(x) {
+    ddlEdit = x.id; ddlLevel = x.level || 1; ddlRem = new Set((x.remind || []).map(Number));
+    const d = new Date(x.due);
+    $('ddlTitle').value = x.title; $('ddlCourse').value = x.course || ''; $('ddlNoteIn').value = x.note || '';
+    $('ddlDate').value = `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`; $('ddlTime').value = `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+    $('ddlFormTitle').textContent = '修改 DDL'; $('ddlSave').textContent = '保存'; $('ddlCancel').textContent = '取消修改';
+    paintLevel(); paintRem(); ddlMsg('');
+    $('ddlTitle').focus();
+  }
+  function paintDdl() {
+    const box = $('ddlList'); if (!box) return;
+    const all = D.list({ all: true }), now = Date.now();
+    const show = $('ddlShowDone').checked ? all : all.filter((x) => !x.done);
+    box.textContent = '';
+    const open = all.filter((x) => !x.done);
+    $('ddlSum').textContent = open.length ? `${open.length} 个没交${open.filter((x) => x.due < now).length ? ' · 已过 ' + open.filter((x) => x.due < now).length : ''}` : '';
+    if (!show.length) { const p = document.createElement('p'); p.className = 'none'; p.textContent = all.length ? '都交完啦，真棒！' : '还没有 DDL。在下面添加，或者直接跟她说「周五前交实验报告」。'; box.appendChild(p); }
+    show.forEach((x) => {
+      const row = document.createElement('div'); row.className = 'ddl-item ' + (x.done ? 'done' : D.urgency(x, now));
+      const ck = document.createElement('button'); ck.type = 'button'; ck.className = 'ck'; ck.textContent = x.done ? '✓' : '';
+      ck.title = x.done ? '标记为没完成' : '完成了'; ck.setAttribute('aria-label', (x.done ? '取消完成：' : '完成：') + x.title);
+      ck.addEventListener('click', () => { D.setDone(x.id, !x.done); paintDdl(); });
+      const main = document.createElement('div'); main.className = 'ddl-main';
+      const b = document.createElement('b'); b.textContent = x.title; main.appendChild(b);
+      if (x.course) { const c = document.createElement('span'); c.className = 'ddl-tag'; c.textContent = x.course; main.appendChild(c); }
+      if (x.level >= 2) { const l = document.createElement('span'); l.className = 'ddl-tag lv' + x.level; l.textContent = x.level >= 3 ? '很急' : '重要'; main.appendChild(l); }
+      const when = document.createElement('small');
+      const left = document.createElement('span'); left.className = 'left'; left.textContent = x.done ? '已完成' : D.leftText(x.due, now);
+      when.append(D.whenText(x.due) + ' 截止 · ', left); main.appendChild(when);
+      if (x.note) { const n = document.createElement('small'); n.textContent = x.note; main.appendChild(n); }
+      const ed = document.createElement('button'); ed.type = 'button'; ed.textContent = '改'; ed.setAttribute('aria-label', '修改：' + x.title);
+      ed.addEventListener('click', () => ddlFill(x));
+      const del = document.createElement('button'); del.type = 'button'; del.textContent = '删'; del.setAttribute('aria-label', '删除：' + x.title);
+      del.addEventListener('click', () => { D.remove(x.id); if (ddlEdit === x.id) ddlReset(); paintDdl(); });
+      row.append(ck, main, ed, del); box.appendChild(row);
+    });
+    const dl = $('ddlCourses'); dl.textContent = '';
+    [...new Set(all.map((x) => x.course).filter(Boolean))].forEach((c) => { const o = document.createElement('option'); o.value = c; dl.appendChild(o); });
+  }
+  $('ddlLevel').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) { ddlLevel = +b.dataset.v; paintLevel(); } });
+  $('ddlShowDone').addEventListener('change', paintDdl);
+  $('ddlCancel').addEventListener('click', () => { ddlReset(); ddlMsg(''); });
+  $('ddlForm').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const title = $('ddlTitle').value.trim(), date = $('ddlDate').value, time = $('ddlTime').value || '23:59';
+    if (!title || !date) { ddlMsg('标题和截止日期要填哦'); return; }
+    const due = new Date(`${date}T${time}:00`).getTime();
+    if (!Number.isFinite(due)) { ddlMsg('日期好像不对'); return; }
+    const o = { title, due, course: $('ddlCourse').value, note: $('ddlNoteIn').value, level: ddlLevel, remind: [...ddlRem] };
+    const it = ddlEdit ? D.update(ddlEdit, o) : D.add(o, S);
+    if (!it) { ddlMsg('没存上…'); return; }
+    ddlMsg((ddlEdit ? '改好啦：' : '加好啦：') + it.title + '，' + D.whenText(it.due) + ' 截止' + (due < Date.now() ? '（这个时间已经过了哦）' : ''));
+    ddlReset(); paintDdl();
+  });
+  ddlReset(); paintDdl();
+  window.addEventListener('storage', (e) => { if (e.key === D.KEY) paintDdl(); });
+  setInterval(() => { if (!$('p-campus').hidden && !document.hidden) paintDdl(); }, 30000); // 倒计时
 
   /* ---------- 更新（Rust 那边检查 / 下载 / 校验签名 / 安装） ---------- */
   const updNote = (t) => { $('updNote').textContent = t; };

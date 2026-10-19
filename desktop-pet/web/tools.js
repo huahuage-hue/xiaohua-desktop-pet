@@ -29,6 +29,15 @@
     }, ['text']),
     fn('list_reminders', '列出还没到点的提醒'),
     fn('cancel_reminder', '取消提醒', { keyword: { type: 'string', description: '提醒内容里的关键词；“全部”表示全部取消' } }, ['keyword']),
+    fn('add_ddl', '记一个 DDL（作业、报告、考试、报名等截止时间），到时间前小嬅会提醒用户', {
+      title: { type: 'string', description: '要交 / 要做的事，简短，例如“高数第三章作业”' },
+      due: { type: 'string', description: '截止时间，YYYY-MM-DD HH:MM（按今天的日期把“周五晚上”等换算好；没说几点就用 23:59）' },
+      course: { type: 'string', description: '课程或分类（可空）' },
+      note: { type: 'string', description: '备注（可空）' },
+      level: { type: 'number', description: '重要程度 1 普通 / 2 重要 / 3 很急（可空）' },
+    }, ['title', 'due']),
+    fn('list_ddl', '查看用户还没完成的 DDL'),
+    fn('finish_ddl', '把某个 DDL 标记为已完成（用户说交了 / 做完了）', { keyword: { type: 'string', description: '标题或课程里的关键词' } }, ['keyword']),
     fn('take_note', '帮用户记一条便签（用户能在控制面板里看到）', { text: { type: 'string', description: '便签内容' } }, ['text']),
     fn('list_notes', '查看最近记下的便签'),
     fn('open_url', '在浏览器里打开一个网页（会先问用户）', { url: { type: 'string', description: '完整网址，http 或 https 开头' } }, ['url']),
@@ -42,7 +51,7 @@
     question: { type: 'string', description: '用户想从屏幕上知道什么（可空）' },
   });
   /* 侧边窗 / 气泡里显示用的动作名 */
-  const NAME = { get_time: '看时间', get_weather: '查天气', set_reminder: '设提醒', list_reminders: '看提醒', cancel_reminder: '取消提醒', take_note: '记便签', list_notes: '看便签', open_url: '打开网页', web_search: '搜索', open_app: '打开程序', read_clipboard: '看剪贴板', write_clipboard: '复制到剪贴板', look_screen: '看屏幕' };
+  const NAME = { add_ddl: '记 DDL', list_ddl: '看 DDL', finish_ddl: '完成 DDL', get_time: '看时间', get_weather: '查天气', set_reminder: '设提醒', list_reminders: '看提醒', cancel_reminder: '取消提醒', take_note: '记便签', list_notes: '看便签', open_url: '打开网页', web_search: '搜索', open_app: '打开程序', read_clipboard: '看剪贴板', write_clipboard: '复制到剪贴板', look_screen: '看屏幕' };
 
   /* ---------- 提醒 ---------- */
   const R = { P: null, timer: 0 };
@@ -113,6 +122,27 @@
         if (!hit.length) return no(`没找到包含「${k}」的提醒。`, '没找到这个提醒');
         write(REM_KEY, list.filter((r) => !hit.includes(r)));
         return ok(`已取消 ${hit.length} 个提醒：${hit.map((r) => r.text).join('、')}`, `取消了 ${hit.length} 个提醒`);
+      }
+      case 'add_ddl': {
+        if (!XH.ddl) return no('DDL 功能没加载。');
+        const m = String(a.due || '').trim().match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:[ T](\d{1,2}):(\d{2}))?/);
+        if (!m) return no('截止时间格式不对，要 YYYY-MM-DD HH:MM。');
+        const due = new Date(+m[1], +m[2] - 1, +m[3], m[4] != null ? +m[4] : 23, m[5] != null ? +m[5] : 59).getTime();
+        const it = XH.ddl.add({ title: a.title, due, course: a.course, note: a.note, level: a.level }, S);
+        if (!it) return no('DDL 标题是空的。');
+        return ok(`已记下 DDL：「${it.title}」，${XH.ddl.whenText(it.due)} 截止（${XH.ddl.leftText(it.due)}）${due < Date.now() ? '——注意这个时间已经过了' : ''}；会提前提醒。`, `记了 DDL · ${it.title} · ${XH.ddl.whenText(it.due)}`);
+      }
+      case 'list_ddl': {
+        if (!XH.ddl) return no('DDL 功能没加载。');
+        const xs = XH.ddl.list();
+        return ok(xs.length ? xs.map((x) => `${x.course ? x.course + ' · ' : ''}${x.title}：${XH.ddl.whenText(x.due)} 截止，${XH.ddl.leftText(x.due)}`).join('；') : '现在没有没完成的 DDL。', `看了 DDL（${xs.length} 个）`);
+      }
+      case 'finish_ddl': {
+        if (!XH.ddl) return no('DDL 功能没加载。');
+        const hit = XH.ddl.find(a.keyword).filter((x) => !x.done);
+        if (!hit.length) return no(`没找到包含「${a.keyword}」的未完成 DDL。`, '没找到这个 DDL');
+        XH.ddl.setDone(hit[0].id, true);
+        return ok(`已把「${hit[0].title}」标记为完成。` + (hit.length > 1 ? `（还有 ${hit.length - 1} 个也匹配，没动）` : ''), '完成了 · ' + hit[0].title);
       }
       case 'take_note': {
         const text = clip(String(a.text || '').trim(), 500);

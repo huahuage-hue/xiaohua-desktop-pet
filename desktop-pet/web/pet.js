@@ -29,7 +29,7 @@
     const P = XH.pet;
 
     /* 设置：localStorage 与控制面板窗口共享（同源），面板改动后通过 pet://settings 通知 */
-    const DEF = { idleFreq: 2, bubbles: true, follow: true, props: true, react: true, scale: 100, top: true, sfx: true, vol: 25, voice: true, swing: 2, outfit: 'classic', acc: {}, autoDress: true, festival: true, ...(XH.DEF_ASSIST || {}), ...(XH.DEF_SCENE || {}), ...((XH.chat && XH.chat.DEF_CHAT) || {}), ...(XH.DEF_VISION || {}), autoUpdate: true };
+    const DEF = { idleFreq: 2, bubbles: true, follow: true, props: true, react: true, scale: 100, top: true, sfx: true, vol: 25, voice: true, swing: 2, outfit: 'classic', acc: {}, autoDress: true, festival: true, ...(XH.DEF_ASSIST || {}), ...(XH.DEF_SCENE || {}), ...((XH.chat && XH.chat.DEF_CHAT) || {}), ...(XH.DEF_VISION || {}), ...(XH.DEF_DDL || {}), autoUpdate: true };
     /* sv：设置版本。v0.1.3 起默认音量 40 → 25；v0.3.0 去掉 roam，加 outfit / acc / autoDress；v0.5.0 加场景感知；v0.6.0 加聊天方式 chatMode */
     const load = () => {
       let s; try { s = JSON.parse(localStorage.getItem('xh-pet') || '{}'); } catch (_) { s = {}; }
@@ -51,7 +51,10 @@
     const reactTo = (name) => { if (!S.react || P.sleeping() || P.busy() || R.cool > 0 || st.dragging) return; R.cool = 6; P.play(name, true); };
     const onCursor = (x, y, inside) => {
       st.x = x; st.y = y; st.inside = inside;
-      if (XH.assist && (x !== R.lx || y !== R.ly)) XH.assist.input(); // 有人在用电脑（喝水提醒计时 / 深夜劝睡）
+      if (x !== R.lx || y !== R.ly) { // 有人在用电脑（喝水提醒计时 / 深夜劝睡 / DDL 早间汇总）
+        if (XH.assist) XH.assist.input();
+        if (XH.ddl) XH.ddl.input();
+      }
       P.aim(x, y); // 窗口外也会看向光标
       const dx = x - R.lx, dy = y - R.ly;
       if (Math.hypot(dx, dy) > 2) {
@@ -270,8 +273,9 @@
       if (askBox) askBox.addEventListener('click', (e) => { const b = e.target.closest('[data-a]'); if (b) answerAsk(askBox.dataset.id, b.dataset.a === '1'); });
       paintThink();
     }
-    /* 提醒到点由 tools.js 自己计时 */
+    /* 提醒到点由 tools.js 自己计时；DDL 由 ddl.js */
     if (XH.tools) XH.tools.start(P);
+    if (XH.ddl) XH.ddl.start(P, () => S);
     gl.addEventListener('dblclick', (e) => { if (e.button === 0 && !st.dragging) openChat(); });
     window.PET_CHAT = {
       open: openChat, close: closeAll, send: chatSend, openBar, closeBar, openSide, closeSide, setScene: updateScene,
