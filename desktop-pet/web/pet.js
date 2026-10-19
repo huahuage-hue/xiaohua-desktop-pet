@@ -375,8 +375,17 @@
       if (XH.chat.busy()) return;
       if (XH.chat.proactive(S, P)) proNext = Date.now() + proGap(k);
     }
+    /* 闲时杂务（v0.7.0）：补写前几天的聊天日记；启动 90 秒后第一次，之后每 10 分钟，正在聊天时不做 */
+    let houseAt = Date.now() + 90000;
+    function houseTick(force) {
+      if (!force && Date.now() < houseAt) return false;
+      houseAt = Date.now() + 10 * 60000;
+      if (st.chatOpen || !XH.chat || XH.chat.busy()) return false;
+      return XH.chat.housekeep(S);
+    }
+    window.PET_HOUSE = () => houseTick(true);
     armProactive(true);
-    setInterval(proactiveTick, 30000);
+    setInterval(() => { proactiveTick(); houseTick(); }, 30000);
 
     /* 来自控制面板的指令 */
     const onCmd = (c) => {

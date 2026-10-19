@@ -64,7 +64,15 @@
   XH.wmoIcon = (c) => (c === 0 ? 'sun' : c <= 2 ? 'part' : c === 3 ? 'cloud' : c <= 48 ? 'fog' : c <= 67 || (c >= 80 && c <= 82) ? 'rain' : c <= 77 || c === 85 || c === 86 ? 'snow' : 'storm');
 
   let root, inner, body, ico, txt, temp, tails = [];
-  const st = { on: false, type: 'say', until: 0, hold: false, queue: '', streaming: false, full: '', talk: null, hideT: 0, x: null, y: null };
+  /* marks（v0.7.0）：[{at, fn}]，打字机显示到第 at 个字时调用 fn（一句话里换表情用）；shown = 已经打出来的字数 */
+  const st = { on: false, type: 'say', until: 0, hold: false, queue: '', streaming: false, full: '', talk: null, hideT: 0, x: null, y: null, marks: [], shown: 0 };
+  const len = (s) => [...s].length;
+  function fireMarks() {
+    while (st.marks.length && st.marks[0].at <= st.shown) {
+      const m = st.marks.shift();
+      try { m.fn(); } catch (_) { /* 表情出错不影响说话 */ }
+    }
+  }
 
   function mount(container) {
     if (root) return;
@@ -100,7 +108,7 @@
     const type = opt.type || 'say';
     /* 正在对话时，普通动作台词不抢气泡 */
     if (busy() && type === 'say' && !opt.force) return;
-    st.streaming = false; st.queue = '';
+    st.streaming = false; st.queue = ''; st.marks = [];
     open(type);
     if (type === 'time') { const d = opt.date || new Date(); ico.innerHTML = clock(d.getHours(), d.getMinutes()); }
     else if (type === 'weather') { ico.innerHTML = ICONS[XH.wmoIcon(opt.code | 0)] || ICONS.cloud; temp.textContent = opt.temp != null ? Math.round(opt.temp) + '°' : ''; }
@@ -117,7 +125,7 @@
     if (!root) return;
     open('chat');
     root.classList.add('thinking');
-    txt.textContent = ''; st.full = ''; st.queue = '';
+    txt.textContent = ''; st.full = ''; st.queue = ''; st.marks = []; st.shown = 0;
     st.streaming = true; st.until = Infinity;
   }
   function append(s) {
@@ -126,10 +134,17 @@
     root.classList.remove('thinking');
     st.queue += s; st.full += s;
   }
+  /* 在当前已追加文字的末尾记一个点：打字机打到这里时调用 fn；已经打到了就立刻调用 */
+  function mark(fn) {
+    if (!root || st.type !== 'chat') { fn(); return; }
+    const at = len(st.full);
+    if (at <= st.shown) { fn(); return; }
+    st.marks.push({ at, fn });
+  }
   function chatEnd() { st.streaming = false; if (!st.queue) st.until = performance.now() + dur(st.full, 'chat'); }
   function hide(now) {
     if (!st.on) return;
-    st.on = false; st.streaming = false; st.queue = '';
+    st.on = false; st.streaming = false; st.queue = ''; st.marks = [];
     root.classList.add('out');
     st.hideT = setTimeout(() => { root.classList.remove('on', 'out'); }, now ? 0 : 280);
     if (st.talk) st.talk(false);
@@ -151,6 +166,8 @@
         txt.appendChild(document.createTextNode(take));
         txt.scrollTop = txt.scrollHeight;
         if (st.talk) st.talk(true);
+        st.shown += Math.min(n, cs.length);
+        fireMarks();
       }
       if (!st.queue) { if (st.talk) st.talk(false); if (!st.streaming) st.until = now + dur(st.full, 'chat'); }
     }
@@ -177,5 +194,5 @@
     tails[2].style.transform = `translate(${tx - 2 + dir * 5}px, ${h + 9}px)`;
   }
 
-  XH.bubble = { mount, say, chatStart, append, chatEnd, hide, busy, frame, hold: (b) => { st.hold = !!b; }, onTalk: (fn) => { st.talk = fn; }, state: st };
+  XH.bubble = { mount, say, chatStart, append, mark, chatEnd, hide, busy, frame, hold: (b) => { st.hold = !!b; }, onTalk: (fn) => { st.talk = fn; }, state: st };
 })();

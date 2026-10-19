@@ -1,7 +1,8 @@
 /* 小嬅桌宠 · 记忆 v2（v0.5.0）
    - 结构：profile（称呼 / 生日 / 城市 / 工作 / 喜欢 / 不喜欢 / 忌口）+ facts / events / promises
    - 只存在本机 localStorage；旧的单段摘要（xh-memory）第一次读取时自动迁移
-   - 去重合并、置顶权重、按话题取相关条目；敏感信息由抽取提示词和用户「忘掉…」共同约束 */
+   - 去重合并、置顶权重、按话题取相关条目；敏感信息由抽取提示词和用户「忘掉…」共同约束
+   - v0.7.0：diary 每日小结 [{date, text}]（最多 60 天）；事件可带 when（事情发生的日子），到日子后回访一次（askedAt） */
 (function () {
   'use strict';
   const XH = (window.XH = window.XH || {});
@@ -15,7 +16,7 @@
   const day = (t) => { const d = t ? new Date(t) : new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 
   function blank() {
-    return { v: 2, profile: { name: '', birthday: '', city: '', job: '', likes: [], dislikes: [], taboos: [] }, facts: [], events: [], promises: [], forgotten: [], updatedAt: 0 };
+    return { v: 2, profile: { name: '', birthday: '', city: '', job: '', likes: [], dislikes: [], taboos: [] }, facts: [], events: [], promises: [], diary: [], forgotten: [], updatedAt: 0 };
   }
   function norm(m) {
     const b = blank();
@@ -23,6 +24,7 @@
     const out = { ...b, ...m, profile: { ...b.profile, ...(m.profile || {}) }, v: 2 };
     const arr = (v) => Array.isArray(v) ? v : [];
     out.facts = arr(m.facts); out.events = arr(m.events); out.promises = arr(m.promises);
+    out.diary = arr(m.diary).filter((x) => x && /^\d{4}-\d{2}-\d{2}$/.test(x.date)).map((x) => ({ date: x.date, text: clean(x.text).slice(0, 120) }));
     out.forgotten = arr(m.forgotten).map(clean).filter(Boolean).slice(-30);
     for (const k of ['likes', 'dislikes', 'taboos']) if (!Array.isArray(out.profile[k])) out.profile[k] = clean(out.profile[k]) ? clean(out.profile[k]).split(/[、,，]/).map(clean).filter(Boolean) : [];
     for (const k of ['name', 'birthday', 'city', 'job']) out.profile[k] = clean(out.profile[k]);
@@ -56,6 +58,10 @@
     for (const k of Object.keys(LIM)) {
       m[k] = m[k].filter((x) => x && clean(x.text)).sort((a, b) => (b.w || 1) - (a.w || 1) || (b.created || 0) - (a.created || 0)).slice(0, LIM[k]);
     }
+    /* 小结按日期排、同一天只留一条、最多 60 天 */
+    const byDay = new Map();
+    m.diary.forEach((x) => byDay.set(x.date, x));
+    m.diary = [...byDay.values()].sort((a, b) => (a.date < b.date ? -1 : 1)).slice(-60);
     m.updatedAt = now();
     try { localStorage.setItem(KEY, JSON.stringify(m)); } catch (_) { /* 满了就算了 */ }
     return m;
@@ -82,11 +88,13 @@
     if (hit) {
       hit.w = Math.min(20, (hit.w || 1) + 1);
       hit.lastUsed = now();
+      if (opt && opt.when && hit.when !== opt.when) { hit.when = opt.when; delete hit.askedAt; } // 改期了就重新等着回访
       if (opt && opt.tags) hit.tags = [...new Set([...(hit.tags || []), ...opt.tags])].slice(0, 6);
       return false;
     }
     const it = { id: uid(), text, tags: (opt && opt.tags || []).slice(0, 6), w: 1, created: now(), lastUsed: now() };
     if (opt && opt.date) it.date = opt.date;
+    if (opt && opt.when) it.when = opt.when;
     if (opt && opt.kind === 'promises') it.done = false;
     list.push(it);
     return true;
@@ -112,7 +120,13 @@
       }
     }
     (Array.isArray(out.facts) ? out.facts : []).forEach((t) => { if (blockedByForgotten(m, t)) return; if (addItem(m.facts, t)) n++; });
-    (Array.isArray(out.events) ? out.events : []).forEach((t) => { if (blockedByForgotten(m, t)) return; if (addItem(m.events, t, { date: day() })) n++; });
+    /* 事件：字符串，或 {text, when:"YYYY-MM-DD"}（v0.7.0） */
+    (Array.isArray(out.events) ? out.events : []).forEach((e) => {
+      const t = e && typeof e === 'object' ? e.text : e;
+      const when = e && typeof e === 'object' && /^\d{4}-\d{2}-\d{2}$/.test(String(e.when || '')) ? e.when : '';
+      if (!clean(t) || blockedByForgotten(m, t)) return;
+      if (addItem(m.events, t, { date: day(), when })) n++;
+    });
     (Array.isArray(out.promises) ? out.promises : []).forEach((t) => { if (blockedByForgotten(m, t)) return; if (addItem(m.promises, t, { kind: 'promises' })) n++; });
     if (n) save(m);
     return n;
@@ -158,9 +172,15 @@
     const facts = top(m.facts, q, 8);
     if (facts.length) parts.push('记得的事：' + facts.map((x) => x.text).join('；'));
     const ev = m.events.filter((x) => !x.date || now() - new Date(x.date + 'T12:00:00').getTime() < 90 * 86400000).slice(-3);
-    if (ev.length) parts.push('最近发生的事：' + ev.map((x) => x.text).join('；'));
+    if (ev.length) parts.push('最近发生 / 将要发生的事：' + ev.map((x) => x.text + (x.when ? `（${x.when.slice(5)}）` : '')).join('；'));
     const pr = m.promises.filter((x) => !x.done).slice(-3);
     if (pr.length) parts.push('还没兑现的约定：' + pr.map((x) => x.text).join('；'));
+    /* 聊天日记：最近 3 天 + 更早里和当前话题最相关的 1 天 */
+    const dia = m.diary.filter((x) => x.text);
+    const recent = dia.slice(-3);
+    const older = q ? dia.slice(0, -3).map((x) => ({ x, s: score({ text: x.text, w: 0, lastUsed: 0, created: 0 }, q) })).filter((o) => o.s >= 5).sort((a, b) => b.s - a.s).slice(0, 1).map((o) => o.x) : [];
+    const ds = [...older, ...recent];
+    if (ds.length) parts.push('前几天聊过：' + ds.map((x) => `${+x.date.slice(5, 7)}月${+x.date.slice(8)}日 ${x.text}`).join('；'));
     let s = parts.join('\n');
     if (s.length > 1100) s = s.slice(0, 1100);
     return s;
@@ -170,7 +190,7 @@
     const m = load(), k = clean(kw).toLowerCase();
     if (!k || /^(所有|全部|一切|都)/.test(k)) {
       const n = m.facts.length + m.events.length + m.promises.length;
-      m.facts = []; m.events = []; m.promises = []; m.forgotten = [];
+      m.facts = []; m.events = []; m.promises = []; m.diary = []; m.forgotten = [];
       for (const key of PROFILE) m.profile[key] = Array.isArray(m.profile[key]) ? [] : '';
       save(m);
       return n;
@@ -184,6 +204,8 @@
       }
       m[key] = keep;
     }
+    const dk = m.diary.filter((x) => !clean(x.text).toLowerCase().includes(k));
+    n += m.diary.length - dk.length; m.diary = dk;
     for (const key of ['likes', 'dislikes', 'taboos']) {
       const keep = (m.profile[key] || []).filter((x) => !clean(x).toLowerCase().includes(k));
       if (keep.length !== (m.profile[key] || []).length) n++;
@@ -234,7 +256,19 @@
   XH.memory = {
     KEY, load, save, clear, digest, apply, forget, remove, update, pin, toggle, importData, exportData,
     add: (kind, text) => { const m = load(); const ok = addItem(m[kind], text, { kind }); save(m); return ok; },
-    stats: () => { const m = load(); return { facts: m.facts.length, events: m.events.length, promises: m.promises.length, profile: PROFILE.filter((k) => (Array.isArray(m.profile[k]) ? m.profile[k].length : m.profile[k])).length }; },
+    stats: () => { const m = load(); return { facts: m.facts.length, events: m.events.length, promises: m.promises.length, diary: m.diary.filter((x) => x.text).length, profile: PROFILE.filter((k) => (Array.isArray(m.profile[k]) ? m.profile[k].length : m.profile[k])).length }; },
     profile: () => load().profile,
+    /* ---------- v0.7.0 ---------- */
+    diaryDates: () => load().diary.map((x) => x.date),
+    addDiary(date, text) { const m = load(); m.diary = m.diary.filter((x) => x.date !== date); m.diary.push({ date, text: clean(text).slice(0, 120) }); save(m); },
+    removeDiary(date) { const m = load(); m.diary = m.diary.filter((x) => x.date !== date); m.diary.push({ date, text: '' }); save(m); }, // 留空占位：不再自动重写这一天
+    recentDiary: (n) => load().diary.filter((x) => x.text).slice(-(n || 3)),
+    /* 该回访的事件：日子到了（含当天晚些时候）、7 天内、还没问过；越近越先 */
+    followups() {
+      const today = day(), m = load();
+      return m.events.filter((x) => x.when && x.when <= today && !x.askedAt && now() - new Date(x.when + 'T23:59:59').getTime() < 7 * 86400000)
+        .sort((a, b) => (a.when < b.when ? 1 : -1));
+    },
+    markAsked(id) { const m = load(), it = m.events.find((x) => x.id === id); if (it) { it.askedAt = now(); save(m); } },
   };
 })();

@@ -29,7 +29,7 @@
     custom: {},
   };
   /* chatMode（v0.6.0）：双击她时打开 comic 漫画输入栏 / side 侧边聊天窗；think：深度思考；agentOn：让她帮我做事 */
-  const DEF_CHAT = { chatOn: false, provider: 'deepseek', base: '', model: '', persona: 'self', len: 's', nickname: '', proactive: 2, chatMode: 'comic', think: false, thinkModel: '', agentOn: true };
+  const DEF_CHAT = { chatOn: false, provider: 'deepseek', base: '', model: '', persona: 'self', len: 's', nickname: '', proactive: 2, chatMode: 'comic', think: false, thinkModel: '', agentOn: true, recallOn: true };
   const TAGS = ['开心', '害羞', '生气', '困', '思考', '惊讶', '疑惑', '难过', '点头', '打招呼', '挥手', '得意', '无聊', '星星眼', '嘟嘴', '猫嘴'];
   const LOG_KEY = 'xh-chat-log', MAX_TURNS = 10, MAX_STEPS = 4;
 
@@ -50,10 +50,12 @@
     const now = new Date();
     const when = `现在是${now.getFullYear()}年${now.getMonth() + 1}月${now.getDate()}日 星期${'日一二三四五六'[now.getDay()]} ${now.getHours()}:${String(now.getMinutes()).padStart(2, '0')}。`;
     const len = c.len === 'm' ? '每次回复控制在 100 字以内' : '每次回复控制在 40 字以内，一两句话';
-    const tag = `每次回复必须以一个情绪标签开头，从这些里选：${TAGS.map((t) => `[${t}]`).join(' ')}，例如“[开心]好呀！”。标签之后不要再出现方括号。`;
+    const tag = `每次回复必须以一个情绪标签开头，从这些里选：${TAGS.map((t) => `[${t}]`).join(' ')}，例如“[开心]好呀！”。` +
+      `如果话里情绪有明显转折，可以在转折的地方再插一个标签（她的表情会跟着变），例如“[开心]好呀！[害羞]不过你不许笑我哦”，整段最多 3 个。只能用上面这些标签，不要用别的方括号。`;
     const nick = c.nickname ? `用户希望你称呼TA为“${c.nickname}”。` : '';
     const mem = memText(q);
-    const memLine = mem ? `\n你记得这些关于用户的事（自然地带出来，不要逐条复述）：\n${mem}` : '';
+    const memLine = mem ? `\n你记得这些关于用户的事（自然地带出来，不要逐条复述）：\n${mem}\n` +
+      '和现在的话题相关时，可以像老朋友那样自然地提起以前聊过的事（比如“你上次说……”“前两天你不是……”），一次最多提一件；不相关就别硬提，也绝不编造没聊过的事。' : '';
     const scene = sceneText();
     const sceneLine = scene ? `\n${scene}` : '';
     const look = !!(o && o.tools && c.visionOn);
@@ -69,18 +71,32 @@
   const loadLog = () => { try { const a = JSON.parse(localStorage.getItem(LOG_KEY) || '[]'); return Array.isArray(a) ? a : []; } catch (_) { return []; } };
   const saveLog = (a) => { try { localStorage.setItem(LOG_KEY, JSON.stringify(a.slice(-200))); } catch (_) { /* 满了就算了 */ } };
 
-  /* 流式回复里剥情绪标签：开头 [xx] 收齐前先攒着，最多攒 8 个字 */
-  function tagParser(onTag, onText) {
-    let head = '', done = false;
-    return (s) => {
-      if (done) return onText(s);
-      head += s;
-      const t = head.replace(/^\s+/, '');
-      if (!t) return;
-      const m = t.match(/^[\[【]([^\]】]{1,6})[\]】]\s*/);
-      if (m) { done = true; onTag(m[1]); const rest = t.slice(m[0].length); if (rest) onText(rest); return; }
-      if (t[0] !== '[' && t[0] !== '【' || [...t].length > 8) { done = true; onText(t); }
+  /* 流式回复里拆情绪标签（v0.7.0：开头和句中都可以有）：[开心] / 【开心】
+     没收齐的 [ 先攒着，攒到 8 个字还不像标签就当正文；不认识的方括号原样留着。结束时调 .flush() 吐出剩下的 */
+  const TAGSET = new Set(TAGS);
+  function moodStream(onTag, onText) {
+    let buf = '', first = true;
+    const feed = (s) => {
+      buf += s;
+      let out = '';
+      for (;;) {
+        if (first) { const t = buf.replace(/^\s+/, ''); if (!t) { buf = ''; break; } buf = t; }
+        const i = buf.search(/[[【]/);
+        if (i < 0) { out += buf; buf = ''; break; }
+        out += buf.slice(0, i); buf = buf.slice(i);
+        const m = buf.match(/^[[【]([^\]】[【]{0,6})([\]】])?/);
+        if (m && m[2]) {
+          buf = buf.slice(m[0].length);
+          if (TAGSET.has(m[1])) { if (out) { first = false; onText(out); out = ''; } onTag(m[1]); buf = buf.replace(/^\s+/, ''); continue; }
+          out += m[0]; continue;
+        }
+        if ([...buf].length > 8) { out += buf[0]; buf = buf.slice(1); continue; }
+        break; // 等后面的字
+      }
+      if (out) { first = false; onText(out); }
     };
+    feed.flush = () => { if (buf) { const b = buf; buf = ''; onText(b); } };
+    return feed;
   }
   const clean = (s) => s.replace(/[\[【](开心|害羞|生气|困|思考|惊讶|疑惑|难过|点头|打招呼|挥手|得意|无聊|星星眼|嘟嘴|猫嘴)[\]】]/g, '');
 
@@ -198,11 +214,20 @@
   const noTools = {}, noThink = {};
   let lastAutoLook = 0;
 
-  const EXTRACT_PROMPT = '你负责为桌宠“小嬅”整理长期记忆。从下面的对话里只提取“以后还用得上”的信息：用户的称呼、生日、城市、工作/学习、喜好、忌口，稳定的事实、最近发生的事、约定。' +
-    '不要提取一次性的寒暄、情绪、玩笑、对话里的临时问题；不要记录密码、账号、身份证、银行卡、详细住址、财务数据、疾病诊断等敏感信息；不要推测。' +
-    '只输出一个 JSON 对象，不要 Markdown 代码块、不要解释。格式：' +
-    '{"profile":{"name":"","birthday":"","city":"","job":"","likes":[],"dislikes":[],"taboos":[]},"facts":["..."],"events":["..."],"promises":["..."]}。' +
-    '没有新内容就输出 {}。每条不超过 40 字，用“用户……”陈述。';
+  const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  /* v0.7.0：带上今天的日期，让事件能记下“哪天发生”（when），到日子后她会回访 */
+  const extractPrompt = () => {
+    const d = new Date();
+    return '你负责为桌宠“小嬅”整理长期记忆。从下面的对话里只提取“以后还用得上”的信息：用户的称呼、生日、城市、工作/学习、喜好、忌口，稳定的事实、最近或将要发生的事、约定。' +
+      '不要提取一次性的寒暄、情绪、玩笑、对话里的临时问题；不要记录密码、账号、身份证、银行卡、详细住址、财务数据、疾病诊断等敏感信息；不要推测。' +
+      `今天是 ${ymd(d)} 星期${'日一二三四五六'[d.getDay()]}。事件如果有明确日期（比如“周五面试”“下周三考试”），写成对象 {"text":"用户……","when":"YYYY-MM-DD"}，把相对日期换算成具体日期；没有明确日期就只写字符串。` +
+      '只输出一个 JSON 对象，不要 Markdown 代码块、不要解释。格式：' +
+      '{"profile":{"name":"","birthday":"","city":"","job":"","likes":[],"dislikes":[],"taboos":[]},"facts":["..."],"events":["...",{"text":"...","when":"YYYY-MM-DD"}],"promises":["..."]}。' +
+      '没有新内容就输出 {}。每条不超过 40 字，用“用户……”陈述。';
+  };
+  /* 每日小结：把某一天的聊天浓缩成一两句，以后聊天和主动搭话时能自然提起 */
+  const DIARY_PROMPT = '你负责给桌宠“小嬅”写聊天日记。把下面这一天用户和小嬅的对话总结成 1–2 句话（不超过 60 字）：聊了什么、用户的心情或在忙的事。' +
+    '用“用户……”陈述，只写以后值得提起的内容；不要写密码、账号、证件号、住址、财务、病情等敏感信息。只输出这句话本身；如果没什么值得记的，只输出“无”。';
 
   function extract(c) {
     if (extracting || cancel) return;
@@ -210,7 +235,7 @@
     if (log.length < 4) return;
     extracting = true;
     const convo = log.slice(-12).map((m) => `${m.role === 'user' ? '用户' : '小嬅'}：${m.content}`).join('\n');
-    const messages = [{ role: 'system', content: EXTRACT_PROMPT }, { role: 'user', content: '对话：\n' + convo }];
+    const messages = [{ role: 'system', content: extractPrompt() }, { role: 'user', content: '对话：\n' + convo }];
     let out = '';
     const guard = setTimeout(() => { extracting = false; memCancel = null; }, 60000);
     memCancel = request(c, messages, false, (k, t) => {
@@ -223,6 +248,30 @@
       if (a < 0 || b <= a) return;
       try { XH.memory.apply(JSON.parse(out.slice(a, b + 1))); memSince = 0; } catch (_) { /* 模型没按格式来，下次再说 */ }
     }, 700);
+  }
+
+  /* 每日小结（v0.7.0）：闲着时找最近 14 天里聊过 ≥4 条、还没写小结的一天（不含今天），后台写一句；一次只写一天
+     和记忆抽取共用 extracting / memCancel：你一说话就让路 */
+  function diaryTick(c) {
+    if (extracting || cancel || !XH.memory || !c.base || !c.model) return false;
+    const today = ymd(new Date()), done = new Set(XH.memory.diaryDates());
+    const by = {};
+    loadLog().forEach((m) => { if (!m.t) return; const d = ymd(new Date(m.t)); if (d !== today && Date.now() - m.t < 14 * 86400000) (by[d] = by[d] || []).push(m); });
+    const day = Object.keys(by).filter((d) => !done.has(d) && by[d].length >= 4 && by[d].some((m) => m.role === 'user')).sort().pop();
+    if (!day) return false;
+    extracting = true;
+    const convo = by[day].slice(-30).map((m) => `${m.role === 'user' ? '用户' : '小嬅'}：${String(m.content).slice(0, 120)}`).join('\n');
+    let out = '';
+    const guard = setTimeout(() => { extracting = false; memCancel = null; }, 60000);
+    memCancel = request(c, [{ role: 'system', content: DIARY_PROMPT }, { role: 'user', content: `${day} 的对话：\n${convo}` }], false, (k, t) => {
+      if (k === 'delta') { out += t; return; }
+      if (!FINAL[k]) return;
+      clearTimeout(guard); extracting = false; memCancel = null;
+      if (k !== 'done') return;
+      const s = clean(out).replace(/^[“"]|[”"]$/g, '').replace(/\s+/g, ' ').trim();
+      XH.memory.addDiary(day, /^无[。.]?$/.test(s) ? '' : s.slice(0, 80)); // 写“无”也记下，免得反复总结同一天
+    }, 200);
+    return true;
   }
 
   /* 本机「忘掉…」：不发给模型，直接删记忆并回一句 */
@@ -256,6 +305,8 @@
       extracting = false; saveLog([]); if (XH.memory) XH.memory.clear(); memSince = 0;
     },
     busy: () => !!cancel || extracting,
+    /* 闲时杂务（pet.js 定时调用）：补写每日小结 */
+    housekeep(S) { return S && S.chatOn ? diaryTick(cfg(S)) : false; },
     stop: () => { if (cancel) cancel(); cancel = null; },
     /* 测试连接：cb(ok, text) */
     test(S, cb) {
@@ -317,7 +368,13 @@
 
       let reply = '', mood = '', step = 0, over = false, stopped = false, curReq = null, looked = false;
       const done = [];
-      const feed = tagParser((tag) => { mood = tag; P.emote(tag); if (H.mood) H.mood(tag); }, (s) => {
+      /* 情绪标签：第一个记进记录；每个都等气泡打字打到那里才换表情（v0.7.0） */
+      const onTag = (tag) => {
+        if (!mood) mood = tag;
+        if (B && reply) B.mark(() => P.emote(tag)); else P.emote(tag);
+        if (H.mood) H.mood(tag);
+      };
+      const feed = moodStream(onTag, (s) => {
         s = clean(s); if (!s) return; reply += s;
         if (B) B.append(s);
         if (H.delta) H.delta(s);
@@ -328,6 +385,7 @@
         if (over) return;
         over = true; cancel = null; curReq = null;
         if (k === 'done') {
+          feed.flush();
           reply = reply.trim();
           if (!reply) { reply = done.length ? '好啦～' : '……'; if (B) B.append(reply); if (H.delta) H.delta(reply); }
           if (B) B.chatEnd();
@@ -415,9 +473,23 @@
       if (XH.scene && XH.scene.quiet && XH.scene.quiet()) return false;
       const c = cfg(S), B = XH.bubble;
       if (!c.base || !c.model || !B) return false;
-      /* 偶尔先看一眼屏幕再开口：开了「偶尔主动看一眼」、之前同意过、30 分钟最多一次、一半概率 */
+      /* 先挑话题（v0.7.0）：到日子的事件回访（问过一次就不再问）> 偶尔顺着最近几天聊过的事 > 随便聊
+         只在 9–22 点提往事，深夜不翻旧账 */
+      const M = XH.memory, hr = new Date().getHours();
+      let topic = '', followId = '';
+      if (S.recallOn !== false && M && hr >= 9 && hr < 22) {
+        const f = M.followups()[0];
+        if (f && Math.random() < 0.7) {
+          followId = f.id;
+          topic = `\n你记得用户之前说过：“${f.text}”${f.when ? `（日期 ${f.when}）` : ''}。那件事现在应该已经发生了，像朋友一样自然地问问结果或感受；如果是让人难过的事，就温柔一点。`;
+        } else if (Math.random() < 0.3) {
+          const d = M.recentDiary(3);
+          if (d.length) topic = `\n你们最近几天聊过：${d.map((x) => x.date.slice(5) + '：' + x.text).join('；')}。如果合适，可以顺着其中一件自然地提一句（“你上次说……”）；不合适就聊别的。`;
+        }
+      }
+      /* 偶尔先看一眼屏幕再开口：开了「偶尔主动看一眼」、之前同意过、30 分钟最多一次、一半概率；有话题时不看 */
       const V = XH.vision;
-      const wantLook = !!(S.visionOn && S.visionAuto && V && V.consented() && Date.now() - lastAutoLook > 30 * 60e3 && Math.random() < 0.5 && V.canLook(S).ok);
+      const wantLook = !topic && !!(S.visionOn && S.visionAuto && V && V.consented() && Date.now() - lastAutoLook > 30 * 60e3 && Math.random() < 0.5 && V.canLook(S).ok);
       let aborted = false;
       cancel = () => { aborted = true; cancel = null; B.hide(true); };
       P.wake();
@@ -427,24 +499,26 @@
         if (aborted) return;
         const lookLine = seen ? `\n你刚看了一眼用户的屏幕：${seen}\n可以顺着这个自然地搭句话，像朋友路过瞄了一眼那样；不要复述隐私内容。` : '';
         const messages = [
-          { role: 'system', content: system(c, '') + lookLine + '现在是你主动开口的时刻：没有人对你说话，你要自己找一句自然的话。可以顺着你记得的事、现在的时间或关心一下用户，但不要每次都提问，也不要重复以前说过的内容。只说一句 30 字以内的话，必须带情绪标签。' },
+          { role: 'system', content: system(c, '') + topic + lookLine + '现在是你主动开口的时刻：没有人对你说话，你要自己找一句自然的话。可以顺着你记得的事、现在的时间或关心一下用户，但不要每次都提问，也不要重复以前说过的内容。只说一句 40 字以内的话，必须带情绪标签。' },
           { role: 'user', content: '（安静中。你主动和用户说一句。不要提这条提示。）' },
         ];
         let reply = '', mood = '';
-        const feed = tagParser((tag) => { mood = tag; P.emote(tag); }, (s) => { s = clean(s); if (!s) return; reply += s; B.append(s); });
+        const feed = moodStream((tag) => { if (!mood) mood = tag; if (reply) B.mark(() => P.emote(tag)); else P.emote(tag); }, (s) => { s = clean(s); if (!s) return; reply += s; B.append(s); });
         const split = thinkSplit(() => {}, feed);
         cancel = request(c, messages, false, (k, t) => {
           if (k === 'delta') return split(t);
           if (!FINAL[k]) return;
           cancel = null;
           if (k === 'done') {
+            feed.flush();
             reply = reply.trim();
             if (!reply) { B.hide(true); return; }
             B.chatEnd();
+            if (followId) M.markAsked(followId);
             /* 看过屏幕就在记录里留个标签，你随时知道她看过 */
             const l = loadLog(); l.push({ role: 'assistant', content: reply, mood, t: Date.now(), ...(seen ? { tools: [{ n: '看了一眼屏幕', ok: true }] } : {}) }); saveLog(l);
           } else B.hide(true);
-        }, 120);
+        }, 160);
       };
       if (wantLook) { lastAutoLook = Date.now(); V.look(S, '', null, { silent: true }).then((r) => go(r.ok ? r.text : '')); }
       else go('');

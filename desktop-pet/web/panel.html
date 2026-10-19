@@ -342,6 +342,7 @@
           <button data-v="0">关</button><button data-v="1">低</button><button data-v="2">中</button><button data-v="3">高</button>
         </div>
       </div>
+      <div class="row"><label for="recallOn">主动提起以前聊过的事<small>主动搭话时会回访你说过的安排（“周五的面试怎么样啦？”）、顺着前几天的话题关心你；只在 9–22 点</small></label><input class="sw" type="checkbox" id="recallOn" data-k="recallOn"></div>
       <div class="row"><label for="agentOn">让她帮我做事<small>设提醒、记便签、打开网页或程序、读写剪贴板；动电脑之前都会先问你</small></label><input class="sw" type="checkbox" id="agentOn" data-k="agentOn"></div>
       <div class="row"><label for="think">深度思考<small>想得更久、更认真，回复慢一些也更费额度；聊天栏的灯泡也能开关</small></label><input class="sw" type="checkbox" id="think" data-k="think"></div>
       <div class="field" data-dep="think"><span>思考模型</span><input class="t" id="thinkModel" spellcheck="false"></div>
@@ -382,7 +383,7 @@
     <div class="mem-prof" id="memProf"></div>
     <div class="mem-head">
       <div class="seg" role="group" aria-label="记忆分类" id="memCat">
-        <button data-v="facts">事实</button><button data-v="events">事件</button><button data-v="promises">约定</button>
+        <button data-v="facts">事实</button><button data-v="events">事件</button><button data-v="promises">约定</button><button data-v="diary">日记</button>
       </div>
       <span class="mem-count" id="memCount"></span>
     </div>
@@ -791,7 +792,7 @@
 
   /* ---------- 记忆 v2 ---------- */
   const PROF_FIELDS = [['name', '称呼'], ['birthday', '生日'], ['city', '城市'], ['job', '工作 / 学习'], ['likes', '喜欢', 1], ['dislikes', '不喜欢', 1], ['taboos', '忌口 / 忌讳', 1]];
-  const MEM_NAME = { facts: '事实', events: '事件', promises: '约定' };
+  const MEM_NAME = { facts: '事实', events: '事件', promises: '约定', diary: '聊天日记' };
 
   function paintProf() {
     const box = $('memProf'); if (!box) return;
@@ -823,8 +824,27 @@
     paintProf();
     const m = XH.memory.load();
     document.querySelectorAll('#memCat button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.v === memCat)));
-    const list = m[memCat] || [], box = $('memList');
+    const box = $('memList');
     box.textContent = '';
+    /* 聊天日记（v0.7.0）：每天一两句，新的在上面；改了直接存，删了这天就不再自动重写 */
+    if (memCat === 'diary') {
+      const dl = m.diary.filter((x) => x.text).slice().reverse();
+      if (!dl.length) { const e = document.createElement('p'); e.className = 'note'; e.textContent = '还没有聊天日记。聊过天的第二天，她会自己把前一天写成一两句。'; box.appendChild(e); }
+      dl.forEach((it) => {
+        const row = document.createElement('div'); row.className = 'mem-item';
+        const d = document.createElement('span'); d.className = 'mem-count'; d.textContent = it.date.slice(5); row.appendChild(d);
+        const inp = document.createElement('input'); inp.className = 't'; inp.value = it.text; inp.setAttribute('aria-label', it.date + ' 的聊天日记');
+        inp.addEventListener('change', () => { if (inp.value.trim()) XH.memory.addDiary(it.date, inp.value); else XH.memory.removeDiary(it.date); paintMem(); });
+        row.appendChild(inp);
+        const del = document.createElement('button'); del.type = 'button'; del.textContent = '删'; del.title = '删除这天的日记';
+        del.addEventListener('click', () => { XH.memory.removeDiary(it.date); paintMem(); }); row.appendChild(del);
+        box.appendChild(row);
+      });
+      $('memCount').textContent = `事实 ${m.facts.length} · 事件 ${m.events.length} · 约定 ${m.promises.length} · 日记 ${dl.length}`;
+      document.querySelectorAll('#memCat button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.v === memCat)));
+      return;
+    }
+    const list = m[memCat] || [];
     if (!list.length) {
       const e = document.createElement('p'); e.className = 'note'; e.textContent = `还没有${MEM_NAME[memCat]}。`; box.appendChild(e);
     }
@@ -845,8 +865,12 @@
         const pin = document.createElement('button'); pin.type = 'button'; pin.textContent = '顶'; pin.title = '置顶（更容易被想起）';
         pin.addEventListener('click', () => { XH.memory.pin('facts', it.id); paintMem(); }); row.appendChild(pin);
       }
-      if (memCat === 'events' && it.date) {
-        const d = document.createElement('span'); d.className = 'mem-count'; d.textContent = it.date.slice(5); row.appendChild(d);
+      if (memCat === 'events' && (it.when || it.date)) {
+        /* 有 when 显示事情发生的日子（问过结果的加 ✓），否则显示记下的日子 */
+        const d = document.createElement('span'); d.className = 'mem-count';
+        d.textContent = it.when ? it.when.slice(5) + (it.askedAt ? ' ✓' : '') : it.date.slice(5);
+        d.title = it.when ? (it.askedAt ? '那天之后她已经问过你结果了' : '到这天之后她会找机会问问你') : '记下的日子';
+        row.appendChild(d);
       }
       const del = document.createElement('button'); del.type = 'button'; del.textContent = '删'; del.title = '删除这条';
       del.addEventListener('click', () => { XH.memory.remove(memCat, it.id); paintMem(); }); row.appendChild(del);
