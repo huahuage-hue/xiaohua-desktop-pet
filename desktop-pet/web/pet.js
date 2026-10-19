@@ -29,8 +29,8 @@
     const P = XH.pet;
 
     /* 设置：localStorage 与控制面板窗口共享（同源），面板改动后通过 pet://settings 通知 */
-    const DEF = { idleFreq: 2, bubbles: true, follow: true, props: true, react: true, scale: 100, top: true, sfx: true, vol: 25, voice: true, swing: 2, outfit: 'classic', acc: {}, autoDress: true, festival: true, ...(XH.DEF_ASSIST || {}), ...(XH.DEF_SCENE || {}), ...((XH.chat && XH.chat.DEF_CHAT) || {}) };
-    /* sv：设置版本。v0.1.3 起默认音量 40 → 25；v0.3.0 去掉 roam，加 outfit / acc / autoDress；v0.5.0 加场景感知 */
+    const DEF = { idleFreq: 2, bubbles: true, follow: true, props: true, react: true, scale: 100, top: true, sfx: true, vol: 25, voice: true, swing: 2, outfit: 'classic', acc: {}, autoDress: true, festival: true, ...(XH.DEF_ASSIST || {}), ...(XH.DEF_SCENE || {}), ...((XH.chat && XH.chat.DEF_CHAT) || {}), ...(XH.DEF_VISION || {}), autoUpdate: true };
+    /* sv：设置版本。v0.1.3 起默认音量 40 → 25；v0.3.0 去掉 roam，加 outfit / acc / autoDress；v0.5.0 加场景感知；v0.6.0 加聊天方式 chatMode */
     const load = () => {
       let s; try { s = JSON.parse(localStorage.getItem('xh-pet') || '{}'); } catch (_) { s = {}; }
       if (!s.sv) { if (s.vol === 40) s.vol = 25; s.sv = 2; }
@@ -38,6 +38,7 @@
       if (s.sv < 4) { if (s.outfit == null) s.outfit = 'classic'; if (!s.acc) s.acc = {}; if (s.autoDress == null) s.autoDress = true; delete s.roam; s.sv = 4; }
       if (s.sv < 5) { if (s.festival == null) s.festival = true; s.sv = 5; }
       if (s.sv < 6) { if (s.sceneOn == null) s.sceneOn = true; if (s.sceneTitle == null) s.sceneTitle = false; if (s.quietFull == null) s.quietFull = true; if (s.hideFull == null) s.hideFull = false; if (s.sceneBlock == null) s.sceneBlock = ''; s.sv = 6; }
+      if (s.sv < 7) { if (s.chatMode == null) s.chatMode = 'comic'; s.sv = 7; }
       return { ...DEF, ...s };
     };
     let S = load();
@@ -75,42 +76,77 @@
       if (R.flips.length >= 4) { R.flips = []; reactTo('angry'); }
     };
 
-    /* ---------- 对话卡（v0.5.0）：双击她 / 托盘 / 面板打开；打开期间窗口不穿透 ---------- */
-    const card = document.getElementById('cc'), list = document.getElementById('ccList'), input = document.getElementById('ccIn');
-    const tip = document.getElementById('ccTip'), tipText = document.getElementById('ccTipText'), retry = document.getElementById('ccRetry');
-    const stopBtn = document.getElementById('ccStop'), sendBtn = document.getElementById('ccSend'), sceneChip = document.getElementById('ccScene');
-    const stage = document.getElementById('stage'), hdr = card && card.querySelector('.cc-h');
-    const MOOD = { 开心: '😊', 害羞: '☺️', 生气: '😠', 困: '😴', 思考: '🤔', 惊讶: '😮', 疑惑: '🤨', 难过: '😢', 点头: '🙂', 打招呼: '👋', 挥手: '👋', 得意: '😌', 无聊: '😑', 星星眼: '🤩', 嘟嘴: '😗', 猫嘴: '🐱' };
-    const CHIP = { coding: '写代码', video: '看视频', game: '玩游戏', meeting: '开会', office: '写文档', browser: '逛网页', private: '隐私 · 安静', other: '在忙', self: '' };
-    st.chatOpen = false;
-    let curA = null, lastSent = '', autoHidden = false;
+    /* ---------- 聊天（v0.6.0）：漫画对白输入栏（脚边一条）+ 侧边聊天窗（独立窗口 label=chat，跟着她走） ----------
+       对话逻辑仍在本窗口（chat.js）：回复走头顶 chat 气泡；侧边窗只是视图——这里用 pet://chatui 推进度，它用 pet://cmd 回话 */
+    const bar = document.getElementById('cb'), input = document.getElementById('cbIn');
+    const tip = document.getElementById('cbTip'), tipText = document.getElementById('cbTipText'), retry = document.getElementById('cbRetry');
+    const stopBtn = document.getElementById('cbStop'), sendBtn = document.getElementById('cbSend');
+    const CHIP = { coding: '写代码', video: '看视频', game: '玩游戏', meeting: '开会', office: '写文档', browser: '逛网页' };
+    const PH = input ? input.placeholder : '';
+    st.barOpen = false; st.sideOpen = false;
+    Object.defineProperty(st, 'chatOpen', { get: () => st.barOpen || st.sideOpen, enumerable: true });
+    let lastSent = '', autoHidden = false, busyNow = false, partial = '', mood = '', sideRef = null;
 
-    const hhmm = (t) => { const d = new Date(t || Date.now()); return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'); };
-    const scrollDown = () => { list.scrollTop = list.scrollHeight; };
-    function addMsg(role, text, mood, t, typing) {
-      const d = document.createElement('div');
-      d.className = 'cc-m ' + (role === 'user' ? 'u' : 'a') + (typing ? ' typing' : '');
-      const body = document.createElement('span'); body.className = 'body'; body.textContent = text || '';
-      if (mood && role !== 'user') { const m = document.createElement('span'); m.className = 'mood'; m.textContent = MOOD[mood] || ''; d.appendChild(m); }
-      d.appendChild(body);
-      if (t && !typing) { const tm = document.createElement('span'); tm.className = 'tm'; tm.textContent = hhmm(t); d.appendChild(tm); }
-      list.appendChild(d); scrollDown();
-      return d;
-    }
-    function renderLog() {
-      list.textContent = '';
-      const log = XH.chat.loadLog().slice(-8);
-      if (!log.length) { const e = document.createElement('div'); e.className = 'cc-empty'; e.textContent = '想聊什么都可以呀～我在这里。'; list.appendChild(e); return; }
-      log.forEach((m) => addMsg(m.role === 'user' ? 'user' : 'assistant', m.content, m.mood, m.t));
-      scrollDown();
-    }
-    function updateScene() {
-      if (!sceneChip) return;
+    /* 推给侧边窗（Tauri：emitTo；浏览器调试：window.open 出来的窗口 postMessage） */
+    const toWin = (m) => {
+      if (!st.sideOpen) return;
+      if (T) T.event.emitTo('chat', 'pet://chatui', m).catch(() => {});
+      else if (sideRef && !sideRef.closed) sideRef.postMessage({ chatui: m }, '*');
+    };
+    const clip = (s, n) => { const a = [...String(s || '')]; return a.length > n ? a.slice(0, n).join('') + '…' : a.join(''); };
+    /* 侧边窗标题下那一行：“你在写代码 · 我会安静点”；看不出在干嘛就不写 */
+    const sceneLabel = () => {
       const sc = XH.scene;
-      if (!S.sceneOn || !sc || !sc.state.proc || sc.state.cls === 'self') { sceneChip.hidden = true; return; }
-      sceneChip.hidden = false;
-      sceneChip.textContent = (sc.quiet() ? '安静 · ' : '') + (CHIP[sc.state.cls] || '在忙');
+      if (!S.sceneOn || !sc || !sc.state.proc || sc.state.cls === 'self') return '';
+      if (sc.state.blocked || sc.state.cls === 'private') return '你在用隐私应用 · 我先不打扰';
+      const what = CHIP[sc.state.cls];
+      if (!what) return sc.quiet() ? '我先安静待着' : '';
+      return '你在' + what + (sc.quiet() ? ' · 我会安静点' : '');
+    };
+    const sync = () => toWin({ k: 'sync', busy: busyNow, partial, mood, scene: sceneLabel(), think: !!S.think, vision: !!S.visionOn, ask: curAsk });
+    /* 眼睛按钮只在打开了「看屏幕」时出现 */
+    const lookBtn = document.getElementById('cbLook');
+    const paintLook = () => { if (lookBtn) lookBtn.hidden = !S.visionOn; toWin({ k: 'vision', on: !!S.visionOn }); };
+
+    /* ---------- 深度思考开关（输入栏 🧠 / 侧边窗同一个开关，存进设置） ---------- */
+    const thinkBtn = document.getElementById('cbThink');
+    const paintThink = () => { if (thinkBtn) thinkBtn.setAttribute('aria-pressed', String(!!S.think)); };
+    function setThink(on) {
+      S.think = !!on;
+      try { const s = JSON.parse(localStorage.getItem('xh-pet') || '{}'); s.think = S.think; localStorage.setItem('xh-pet', JSON.stringify(s)); } catch (_) { /* 无所谓 */ }
+      paintThink();
+      toWin({ k: 'think', on: S.think });
+      P.toast(S.think ? '深度思考：开（会想得久一点）' : '深度思考：关');
     }
+
+    /* ---------- 帮你做事前问一句（输入栏 / 侧边窗都能答，60 秒没答算不要） ---------- */
+    const askBox = document.getElementById('cbAsk'), askText = document.getElementById('cbAskText');
+    const asks = new Map();
+    let askSeq = 0, curAsk = null;
+    function confirmAsk(text) {
+      return new Promise((resolve) => {
+        const id = ++askSeq;
+        let tm = 0;
+        const fin = (v) => {
+          if (!asks.has(id)) return;
+          asks.delete(id); clearTimeout(tm);
+          if (curAsk && curAsk.id === id) curAsk = null;
+          if (askBox && +askBox.dataset.id === id) askBox.hidden = true;
+          toWin({ k: 'askdone', id, ok: !!v });
+          resolve(!!v);
+        };
+        tm = setTimeout(() => fin(false), 60000);
+        asks.set(id, fin);
+        curAsk = { id, text };
+        if (!st.sideOpen && !st.barOpen) openBar();
+        if (askBox) { askBox.dataset.id = id; askText.textContent = text; askBox.hidden = false; }
+        toWin({ k: 'ask', id, text });
+        P.play('tilt', false, true, 1, { quiet: true, silent: true });
+      });
+    }
+    const answerAsk = (id, ok) => { const f = asks.get(+id); if (f) f(ok); };
+    const cancelAsks = () => [...asks.values()].forEach((f) => f(false));
+    function updateScene() { toWin({ k: 'scene', text: sceneLabel() }); }
     function applyHide() {
       if (!invoke || !XH.scene) return;
       const sc = XH.scene.state;
@@ -118,127 +154,130 @@
       if (want && !autoHidden) { autoHidden = true; invoke('pet_show', { on: false }).catch(() => { autoHidden = false; }); }
       else if (!want && autoHidden) { autoHidden = false; invoke('pet_show', { on: true }).catch(() => {}); }
     }
-    function updateStop(on) { if (stopBtn) { stopBtn.hidden = !on; sendBtn.disabled = !!on; } }
-    function resetCardPos() {
-      if (!card) return;
-      card.style.width = ''; card.style.left = ''; card.style.top = ''; card.style.right = ''; card.style.bottom = '';
+    function updateStop(on) {
+      busyNow = !!on;
+      if (stopBtn) { stopBtn.hidden = !on; sendBtn.hidden = !!on; }
+      toWin({ k: 'busy', on: busyNow });
     }
-    function clampCard() {
-      if (!card || !card.style.width || !stage) return;
-      const s = stage.getBoundingClientRect(), w = card.offsetWidth, h = card.offsetHeight;
-      const x = Math.min(Math.max(4, parseFloat(card.style.left) || 0), Math.max(4, s.width - w - 4));
-      const y = Math.min(Math.max(4, parseFloat(card.style.top) || 0), Math.max(4, s.height - h - 4));
-      card.style.left = x + 'px'; card.style.top = y + 'px';
+    function showTip(text) { if (!tip) return; tip.hidden = false; tipText.textContent = text; }
+    function chatReady() {
+      if (S.chatOn) return true;
+      P.say('想和我聊天的话…\n先在控制面板「对话」里打开吧', { type: 'say' }, 'tilt');
+      return false;
     }
-    let cdrag = null;
-    function cardDown(e) {
-      if (e.button !== 0 || e.target.closest('button')) return;
-      const r = card.getBoundingClientRect(), s = stage.getBoundingClientRect();
-      cdrag = { id: e.pointerId, sx: e.clientX, sy: e.clientY, x: r.left - s.left, y: r.top - s.top, w: r.width };
-      card.style.width = r.width + 'px';
-      card.style.left = cdrag.x + 'px'; card.style.top = cdrag.y + 'px';
-      card.style.right = 'auto'; card.style.bottom = 'auto';
-      hdr.classList.add('drag');
-      try { hdr.setPointerCapture(e.pointerId); } catch (_) { /* 无活动指针 */ }
-    }
-    function cardMove(e) {
-      if (!cdrag || e.pointerId !== cdrag.id) return;
-      if (!(e.buttons & 1)) return cardUp(e);
-      const s = stage.getBoundingClientRect();
-      const x = Math.max(4, Math.min(cdrag.x + e.clientX - cdrag.sx, s.width - cdrag.w - 4));
-      const y = Math.max(4, Math.min(cdrag.y + e.clientY - cdrag.sy, s.height - card.offsetHeight - 4));
-      card.style.left = x + 'px'; card.style.top = y + 'px';
-    }
-    function cardUp(e) {
-      if (!cdrag) return;
-      cdrag = null; hdr.classList.remove('drag');
-      try { hdr.releasePointerCapture(e.pointerId); } catch (_) { /* 已释放 */ }
-    }
-    function openChat() {
-      if (!card) return;
-      if (!S.chatOn) { P.say('想和我聊天的话…\n先在控制面板「对话」里打开吧', { type: 'say' }, 'tilt'); return; }
-      if (!st.chatOpen) {
-        st.chatOpen = true;
-        renderLog();
-        card.classList.add('on');
-        if (XH.bubble) { XH.bubble.hold(true); XH.bubble.hide(true); }
+
+    function openBar() {
+      if (!bar || !chatReady()) return;
+      if (st.sideOpen) closeSide();
+      if (!st.barOpen) {
+        st.barOpen = true;
+        bar.classList.add('on');
+        if (XH.bubble) XH.bubble.hold(true); // 输入栏开着时，她最后一句话留在头顶
       }
-      setPass(false);
       if (invoke) invoke('pet_focus', { on: true }).catch(() => {});
-      updateStop(!!XH.chat.busy());
+      updateStop(busyNow);
       setTimeout(() => input.focus(), 30);
     }
-    function closeChat() {
-      if (!card || !st.chatOpen) return;
-      st.chatOpen = false; card.classList.remove('on'); input.blur(); resetCardPos();
+    function closeBar() {
+      if (!bar || !st.barOpen) return;
+      st.barOpen = false; bar.classList.remove('on'); input.blur(); tip.hidden = true;
       if (XH.bubble) XH.bubble.hold(false);
       st.sinceProbe = 1;
       applyHide();
     }
-    function autoGrow() {
-      if (!input) return;
-      input.style.height = 'auto';
-      input.style.height = Math.min(64, input.scrollHeight) + 'px';
+    function openSide() {
+      if (!chatReady()) return;
+      if (st.barOpen) closeBar();
+      st.sideOpen = true;
+      /* 窗口只是隐藏过的话不会重新加载：显示后主动同步一次（新建的窗口加载完会自己要） */
+      if (invoke) invoke('chatwin_open').then(() => setTimeout(sync, 80)).catch(() => { st.sideOpen = false; openBar(); });
+      else { sideRef = window.open('chatwin.html', 'xh-chat', 'width=340,height=520'); if (!sideRef) { st.sideOpen = false; openBar(); } }
     }
+    /* fromWin：侧边窗自己关掉的（Esc / × / 系统关闭），不用再让它隐藏 */
+    function closeSide(fromWin) {
+      if (!st.sideOpen) return;
+      st.sideOpen = false;
+      if (!fromWin) {
+        if (invoke) invoke('chatwin_hide').catch(() => {});
+        else if (sideRef && !sideRef.closed) sideRef.close();
+      }
+      sideRef = null;
+      st.sinceProbe = 1;
+      applyHide();
+    }
+    /* 双击 / 托盘 / 面板：按设置打开漫画输入栏或侧边窗；侧边窗已开就只是把它叫到前面 */
+    function openChat() {
+      if (st.sideOpen) return openSide();
+      if (S.chatMode === 'side') openSide(); else openBar();
+    }
+    function closeAll() { closeBar(); closeSide(); }
+
     const H = {
-      card: true,
-      user(text) { const e = list.querySelector('.cc-empty'); if (e) e.remove(); tip.hidden = true; addMsg('user', text, '', Date.now()); },
-      start() { tip.hidden = true; updateStop(true); curA = addMsg('assistant', '', '', 0, true); },
-      mood(tag) { if (curA) { let m = curA.querySelector('.mood'); if (!m) { m = document.createElement('span'); m.className = 'mood'; curA.insertBefore(m, curA.firstChild); } m.textContent = MOOD[tag] || ''; } },
-      delta(s) {
-        if (!curA) curA = addMsg('assistant', '', '', 0, true);
-        curA.classList.remove('typing');
-        const b = curA.querySelector('.body'); b.textContent += s;
-        scrollDown();
+      user(text) {
+        if (tip) tip.hidden = true;
+        if (input) input.placeholder = '你：' + clip(text, 14);
+        toWin({ k: 'user', text, t: Date.now() });
       },
+      start() { if (tip) tip.hidden = true; partial = ''; mood = ''; updateStop(true); toWin({ k: 'start' }); },
+      mood(tag) { mood = tag; toWin({ k: 'mood', tag }); },
+      delta(s) { partial += s; if (input && input.placeholder.startsWith('她在')) input.placeholder = PH; toWin({ k: 'delta', text: s }); },
+      think(s) { if (input) input.placeholder = '她在认真想…'; toWin({ k: 'think', text: s }); },
+      tool(o) {
+        if (input) input.placeholder = o.state === 'run' ? '她在帮你' + o.label : PH;
+        if (o.state !== 'run') P.play(o.state === 'ok' ? 'nod' : 'tilt', false, true, 1, { quiet: true, silent: true });
+        toWin({ k: 'tool', ...o });
+      },
+      confirm: confirmAsk,
+      askCancel: cancelAsks,
       end(k, t) {
         updateStop(false);
-        if (curA) {
-          curA.classList.remove('typing');
-          const b = curA.querySelector('.body');
-          if (!b.textContent && k !== 'done') { curA.remove(); curA = null; }
-          else { const tm = document.createElement('span'); tm.className = 'tm'; tm.textContent = hhmm(); curA.appendChild(tm); }
-        }
-        if (k === 'done') { tip.hidden = true; }
-        else if (k === 'error') {
-          const us = list.querySelectorAll('.cc-m.u'); if (us.length) us[us.length - 1].remove();
-          tip.hidden = false; tipText.textContent = t || '出错了…'; retry.hidden = false;
-        }
-        else if (k === 'cancel') { tip.hidden = false; tipText.textContent = '停在半路啦'; retry.hidden = false; }
-        scrollDown();
+        cancelAsks();
+        if (input) input.placeholder = PH;
+        if (k === 'error') showTip(t || '出错了…');
+        else if (k === 'cancel') showTip('停在半路啦');
+        toWin({ k: 'end', kind: k, text: t || '', mood, t: Date.now() });
+        partial = '';
+        /* 回复途中你点去别处了：说完再收起输入栏（出错时留着，好点重发） */
+        if (k === 'done' && st.barOpen && !input.value && !document.hasFocus()) closeBar();
       },
     };
-    function chatSend(text) {
+    /* opt.look：先看一眼屏幕再回答 */
+    function chatSend(text, opt) {
       if (!XH.chat) return;
       text = String(text || '').trim(); if (!text) return;
-      if (!S.chatOn) return openChat();
+      if (!chatReady()) return;
       lastSent = text;
-      input.value = ''; autoGrow();
-      tip.hidden = true;
-      XH.chat.send(text, S, P, H);
+      if (input) input.value = '';
+      if (tip) tip.hidden = true;
+      XH.chat.send(text, S, P, H, opt);
     }
-    if (card) {
-      document.getElementById('ccForm').addEventListener('submit', (e) => { e.preventDefault(); chatSend(input.value); });
-      input.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); chatSend(input.value); }
-        else if (e.key === 'Escape') { e.preventDefault(); closeChat(); }
-      });
-      input.addEventListener('input', autoGrow);
-      document.getElementById('ccClose').addEventListener('click', closeChat);
+    const lookSend = (text) => {
+      const can = XH.vision ? XH.vision.canLook(S) : { ok: false, why: '看屏幕功能没加载' };
+      if (!can.ok) { showTip(can.why); toWin({ k: 'tip', text: can.why }); return; }
+      chatSend(String(text || '').trim() || '你看看我的屏幕', { look: true });
+    };
+    if (bar) {
+      bar.addEventListener('submit', (e) => { e.preventDefault(); chatSend(input.value); });
+      input.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.preventDefault(); closeBar(); } });
+      document.getElementById('cbClose').addEventListener('click', closeBar);
+      document.getElementById('cbSide').addEventListener('click', openSide);
       stopBtn.addEventListener('click', () => { XH.chat.stop(); updateStop(false); });
       retry.addEventListener('click', () => { tip.hidden = true; chatSend(lastSent); });
-      document.querySelectorAll('#ccQuick [data-say]').forEach((b) => b.addEventListener('click', () => chatSend(b.dataset.say)));
-      window.addEventListener('blur', () => { if (st.chatOpen && !input.value) closeChat(); });
-      if (hdr) {
-        hdr.addEventListener('pointerdown', cardDown);
-        hdr.addEventListener('pointermove', cardMove);
-        hdr.addEventListener('pointerup', cardUp);
-        hdr.addEventListener('pointercancel', cardUp);
-        window.addEventListener('resize', () => { if (st.chatOpen) clampCard(); });
-      }
+      window.addEventListener('blur', () => { if (st.barOpen && !input.value && !busyNow) closeBar(); });
+      if (thinkBtn) thinkBtn.addEventListener('click', () => setThink(!S.think));
+      if (lookBtn) lookBtn.addEventListener('click', () => { if (!busyNow) lookSend(input.value); });
+      paintLook();
+      if (askBox) askBox.addEventListener('click', (e) => { const b = e.target.closest('[data-a]'); if (b) answerAsk(askBox.dataset.id, b.dataset.a === '1'); });
+      paintThink();
     }
+    /* 提醒到点由 tools.js 自己计时 */
+    if (XH.tools) XH.tools.start(P);
     gl.addEventListener('dblclick', (e) => { if (e.button === 0 && !st.dragging) openChat(); });
-    window.PET_CHAT = { open: openChat, close: closeChat, send: chatSend, setScene: updateScene };
+    window.PET_CHAT = {
+      open: openChat, close: closeAll, send: chatSend, openBar, closeBar, openSide, closeSide, setScene: updateScene,
+      state: () => ({ bar: st.barOpen, side: st.sideOpen, busy: busyNow, think: !!S.think, ask: curAsk }),
+      answer: answerAsk, setThink,
+    };
 
     /* 桌面场景：变化时更新徽标、全屏自动隐藏 */
     if (XH.scene) {
@@ -246,6 +285,28 @@
       XH.scene.start(() => S);
       updateScene();
     }
+
+    /* ---------- 自动更新（v0.6.0）：启动 1 分钟后 + 每天查一次；有新版本她说一声（每个版本只说一次），装不装在面板「设置」里点 ---------- */
+    const UPD_SEEN = 'xh-update-seen';
+    function checkUpdate() {
+      if (!invoke || S.autoUpdate === false) return;
+      invoke('update_check').then((u) => {
+        if (!u || !u.available) return;
+        let seen = ''; try { seen = localStorage.getItem(UPD_SEEN) || ''; } catch (_) { /* 无所谓 */ }
+        if (seen === u.version) return;
+        try { localStorage.setItem(UPD_SEEN, u.version); } catch (_) { /* 无所谓 */ }
+        let tries = 0;
+        const tell = () => {
+          if ((st.chatOpen || st.dragging || P.busy() || (XH.bubble && XH.bubble.busy())) && tries++ < 30) { setTimeout(tell, 20000); return; }
+          P.wake();
+          P.say(`有新版本 v${u.version} 啦～\n右键我 → 控制面板「设置」里就能更新`, { type: 'say', force: true, ms: 9000 }, 'sparkle');
+        };
+        tell();
+      }).catch(() => { /* 没配置地址 / 断网：安静地算了 */ });
+    }
+    setTimeout(checkUpdate, 60000);
+    setInterval(checkUpdate, 24 * 3600e3);
+    window.PET_UPDATE = checkUpdate;
 
     /* 小助手：报时 / 天气 / 提醒 / 劝睡 */
     if (XH.assist) XH.assist.start(P, () => S, null);
@@ -274,7 +335,7 @@
       const lines = [
         '第一次见面呀，我是小嬅～',
         '右键我可以打开控制面板，那里能改声音、大小和我的样子。',
-        S.chatOn ? '双击我就能打开对话卡啦，我会记住我们聊过的事。' : '想聊天的话，在「对话」里连上模型就好；我会记住聊过的事，也会偶尔主动找你。',
+        S.chatOn ? '双击我就能和我说话啦；点输入栏右边的小对话框，能看我们聊过的全部。' : '想聊天的话，在「对话」里连上模型就好；我会记住聊过的事，也会偶尔主动找你。',
       ];
       lines.forEach((text, i) => {
         onbTimers.push(setTimeout(() => {
@@ -326,11 +387,21 @@
         const prev = S; S = load(); P.set(S); armProactive(false);
         if (XH.assist) XH.assist.changed(prev);
         if (XH.scene) { XH.scene.set(S); updateScene(); applyHide(); }
-        if (!S.chatOn) closeChat();
+        if (!S.chatOn) closeAll();
+        paintThink(); toWin({ k: 'think', on: !!S.think }); paintLook();
       }
       else if (c.type === 'onboard') runOnboard(true);
       else if (c.type === 'chat') openChat();
       else if (c.type === 'say' && c.text) chatSend(c.text);
+      /* 侧边聊天窗 → 这里 */
+      else if (c.type === 'chatsync') sync();
+      else if (c.type === 'stop') { XH.chat.stop(); updateStop(false); }
+      else if (c.type === 'retry' && lastSent) chatSend(lastSent);
+      else if (c.type === 'bar') openBar();
+      else if (c.type === 'chatwin' && !c.open) closeSide(true);
+      else if (c.type === 'confirm') answerAsk(c.id, !!c.ok);
+      else if (c.type === 'think') setThink(!!c.on);
+      else if (c.type === 'look' && !busyNow) lookSend(c.text);
       else if (c.type === 'time' && XH.assist) XH.assist.sayTime();
       else if (c.type === 'weather' && XH.assist) XH.assist.sayWeather(true);
       else if (c.type === 'chime' && XH.assist) XH.assist.testChime(c.h | 0);
@@ -355,27 +426,26 @@
 
     /* 快捷按钮区：光标移进按钮时保持窗口可点，不然会瞬间穿透点不到 */
     let quickUntil = 0;
-    const inQuick = () => {
-      if (!quick || !quick.classList.contains('on')) return false;
-      const q = quick.getBoundingClientRect();
-      return st.x >= q.left - 2 && st.x <= q.right + 2 && st.y >= q.top - 2 && st.y <= q.bottom + 2;
+    const inBox = (el, pad = 3) => {
+      if (!el) return false;
+      const q = el.getBoundingClientRect();
+      return st.x >= q.left - pad && st.x <= q.right + pad && st.y >= q.top - pad && st.y <= q.bottom + pad;
     };
+    const inQuick = () => !!quick && quick.classList.contains('on') && inBox(quick, 2);
 
     /* 每帧（render 之后）：节流到 50ms 读一次像素 */
     P.onFrame = (dt) => {
       st.sinceProbe += dt;
       tickReact(dt);
-      if (st.chatOpen) {
-        quickUntil = 0;
-        if (quick) { quick.classList.remove('on'); quick.setAttribute('aria-hidden', 'true'); quick.inert = true; }
-        setPass(false); // 输入框开着：整窗可交互
-      } else if (!st.dragging && !st.press && st.sinceProbe >= 0.05) {
+      /* v0.6.0：输入栏开着时不再整窗拦截——她身上 + 输入栏区域可点，其余照样穿透 */
+      if (!st.dragging && !st.press && st.sinceProbe >= 0.05) {
         st.sinceProbe = 0;
         st.alpha = st.inside ? P.alphaAt(st.x, st.y, PAD) : 0;
         st.hit = st.hit ? st.alpha > OFF : st.alpha > ON;
-        if (st.hit) quickUntil = performance.now() + 900;
-        const keep = st.hit || performance.now() < quickUntil || inQuick();
-        if (quick) { quick.classList.toggle('on', keep); quick.setAttribute('aria-hidden', String(!keep)); quick.inert = !keep; }
+        if (st.hit && !st.barOpen) quickUntil = performance.now() + 900;
+        const showQ = !st.barOpen && (st.hit || performance.now() < quickUntil || inQuick());
+        const keep = showQ || st.hit || (st.barOpen && inBox(bar));
+        if (quick) { quick.classList.toggle('on', showQ); quick.setAttribute('aria-hidden', String(!showQ)); quick.inert = !showQ; }
         setPass(!keep);
         gl.style.cursor = st.hit ? 'grab' : 'default';
       }

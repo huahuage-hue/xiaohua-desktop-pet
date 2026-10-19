@@ -2,7 +2,7 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "桌宠主窗口：事件监听 + 自定义命令（set_passthrough / start_drag 为应用自身命令，无需额外权限）",
-  "windows": ["main", "panel"],
+  "windows": ["main", "panel", "chat"],
   "permissions": [
     "core:default",
     "window-state:default"

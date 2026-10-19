@@ -1,0 +1,312 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>和小嬅聊天</title>
+<style>
+  /* 侧边聊天窗（v0.6.0）：独立窗口，贴在小嬅旁边跟着走；只是视图，对话逻辑在桌宠窗口 */
+  :root { --paper: #FBF6EA; --paper2: #F5EEDF; --line: #8B6A4E; --dash: #DCC9B4; --ink: #4A3A32; --ink2: #7A6152; --mute: #A38E7A; --accent: #B98A5E; }
+  html, body { margin: 0; height: 100%; overflow: hidden; }
+  [hidden] { display: none !important; }
+  body { background: var(--paper); color: var(--ink); font: 13px/1.55 "YouYuan", "幼圆", "Microsoft YaHei UI", "PingFang SC", system-ui, sans-serif;
+    display: flex; flex-direction: column; box-sizing: border-box; border: 1.5px solid var(--line); }
+  body::before { content: ""; position: fixed; inset: 3px; border: 1px dashed rgba(185,152,120,.45); pointer-events: none; z-index: 0; }
+  button { font: inherit; }
+
+  header { position: relative; z-index: 1; flex: none; display: flex; align-items: center; gap: 8px; padding: 9px 8px 8px 12px;
+    border-bottom: 1px dashed var(--dash); background: linear-gradient(#FFFDF7, #F7EEDF); user-select: none; -webkit-user-select: none; }
+  .av { flex: none; width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; background: #F4E3C8; border: 1.5px solid var(--line);
+    color: #6B4F3A; font: 700 14px/1 "YouYuan", "幼圆", sans-serif; }
+  .who { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  .who b { font-size: 13px; color: #5A4638; letter-spacing: .04em; }
+  .who small { font-size: 10.5px; color: var(--ink2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .who small.typing { color: #C07A45; }
+  header button { flex: none; width: 28px; height: 28px; border: 0; border-radius: 8px; background: transparent; color: var(--line);
+    display: grid; place-items: center; padding: 0; cursor: pointer; }
+  header button:hover { background: #F1E6D6; }
+  header button:focus-visible, footer button:focus-visible, .quick button:focus-visible { outline: 2px solid #C07A45; outline-offset: 1px; }
+  header svg { width: 16px; height: 16px; display: block; }
+
+  main { position: relative; z-index: 1; flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 10px 12px 6px;
+    display: flex; flex-direction: column; gap: 7px; user-select: text; -webkit-user-select: text; scrollbar-width: thin; scrollbar-color: #D9C7B2 transparent; }
+  main::-webkit-scrollbar { width: 6px; }
+  main::-webkit-scrollbar-thumb { background: #D9C7B2; border-radius: 9px; }
+  .day { align-self: center; margin: 6px 0 2px; padding: 1px 10px; border-radius: 999px; background: #F1E6D6; color: var(--ink2); font-size: 10.5px; }
+  .empty { margin: auto; color: var(--mute); text-align: center; font-size: 12px; line-height: 1.8; }
+  .m { position: relative; max-width: 82%; padding: 6px 10px; border-radius: 13px; white-space: pre-wrap; word-break: break-word; }
+  .m.u { align-self: flex-end; background: var(--accent); color: #fff; border-bottom-right-radius: 4px; }
+  .m.a { align-self: flex-start; background: #FFFDF7; border: 1.2px solid #CBB098; border-bottom-left-radius: 4px; }
+  .m .mood { margin-right: 4px; }
+  .m .tm { display: block; margin-top: 2px; text-align: right; font-size: 9.5px; opacity: .55; }
+  .m.typing .body:empty::after { content: ""; display: inline-block; width: 26px; height: 8px;
+    background: radial-gradient(circle 3px, #B99878 98%, transparent) 0 50% / 9px 8px repeat-x; animation: dots 1.1s infinite steps(3); }
+  @keyframes dots { from { width: 8px; } to { width: 26px; } }
+
+  .tip { position: relative; z-index: 1; flex: none; display: flex; align-items: center; gap: 8px; margin: 0 12px 6px; padding: 4px 6px 4px 10px;
+    border-radius: 9px; background: #FFF6F4; border: 1px solid #E3BDB7; color: #A2463E; font-size: 11.5px; }
+  .tip span { flex: 1; min-width: 0; }
+  .tip button { flex: none; border: 1px solid #E3BDB7; background: #fff; color: #A2463E; border-radius: 7px; padding: 2px 9px; font-size: 11px; cursor: pointer; }
+
+  footer { position: relative; z-index: 1; flex: none; border-top: 1px dashed var(--dash); background: rgba(245,241,230,.8); padding: 7px 9px 8px; }
+  .row { display: flex; align-items: flex-end; gap: 6px; }
+  textarea { flex: 1; min-width: 0; min-height: 34px; max-height: 110px; resize: none; box-sizing: border-box; border: 1px solid #E4DCCB; border-radius: 10px;
+    background: #fff; color: var(--ink); outline: 0; padding: 7px 9px; font: 13px/1.5 "YouYuan", "幼圆", "Microsoft YaHei UI", sans-serif; }
+  textarea:focus { border-color: #C07A45; box-shadow: 0 0 0 2px rgba(192,122,69,.18); }
+  .send { flex: none; height: 34px; border: 0; border-radius: 10px; background: var(--line); color: #fff; padding: 0 13px; cursor: pointer; font-size: 12.5px; }
+  .send:hover { background: #7A5A40; }
+  .send.stop { background: #C9A88A; }
+  .quick { display: flex; gap: 6px; margin-top: 7px; overflow-x: auto; scrollbar-width: none; }
+  .quick::-webkit-scrollbar { display: none; }
+  .quick button { flex: none; border: 1px solid #E0CFB9; background: var(--paper); color: var(--ink2); border-radius: 999px; padding: 3px 9px; font-size: 11px; cursor: pointer; }
+  .quick button:hover { background: #F1E6D6; }
+  /* v0.6.0：思考过程 / 她做的事 / 做事前确认 */
+  .think { align-self: flex-start; max-width: 86%; border-left: 2px solid #E0CFB9; padding: 1px 0 1px 9px; color: var(--ink2); font-size: 11.5px; }
+  .think summary { cursor: pointer; color: #9A7F68; list-style: none; user-select: none; }
+  .think summary::-webkit-details-marker { display: none; }
+  .think summary::before { content: "▸ "; } .think[open] summary::before { content: "▾ "; }
+  .think div { white-space: pre-wrap; word-break: break-word; max-height: 160px; overflow-y: auto; margin-top: 3px; line-height: 1.5; scrollbar-width: thin; }
+  .tool { align-self: flex-start; display: flex; align-items: center; gap: 5px; max-width: 86%; padding: 2px 9px; border-radius: 999px;
+    background: #F1E6D6; border: 1px solid #E0CFB9; color: #6B523F; font-size: 11px; }
+  .tool.ok::before { content: "✓"; color: #5E8C4A; font-weight: 700; } .tool.no::before { content: "✕"; color: #B4574B; font-weight: 700; }
+  .tool.run::before { content: "…"; color: #C07A45; }
+  .ask { align-self: stretch; margin: 2px 4px; padding: 9px 11px; border-radius: 12px; background: #FFFDF7; border: 1.5px solid #C07A45; box-shadow: 0 2px 8px rgba(74,58,50,.12); }
+  .ask p { margin: 0 0 8px; white-space: pre-wrap; word-break: break-all; font-size: 12.5px; }
+  .ask .b { display: flex; gap: 8px; justify-content: flex-end; }
+  .ask button { border: 1px solid #C9A88A; background: #fff; color: #7A5A40; border-radius: 999px; padding: 4px 16px; cursor: pointer; font-size: 12px; }
+  .ask button.y { background: var(--line); border-color: var(--line); color: #fff; }
+  .thinkBtn { flex: none; width: 34px; height: 34px; border: 1px solid #E4DCCB; border-radius: 10px; background: #fff; color: var(--line);
+    display: grid; place-items: center; padding: 0; cursor: pointer; }
+  .thinkBtn svg { width: 17px; height: 17px; display: block; }
+  .thinkBtn[aria-pressed="true"] { background: #F4E3C8; border-color: #E0C29E; color: #C07A45; }
+  @media (prefers-reduced-motion: reduce) { .m.typing .body:empty::after { animation: none; } }
+</style>
+</head>
+<body>
+<header>
+  <span class="av" aria-hidden="true">嬅</span>
+  <div class="who"><b>小嬅</b><small id="status">在这里陪你</small></div>
+  <button type="button" id="toBar" title="收起到她脚边（漫画对白）" aria-label="收起到她脚边">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 14h14M9 18h6"/><path d="M8 4h8a3 3 0 0 1 3 3v0a3 3 0 0 1-3 3H8a3 3 0 0 1-3-3v0a3 3 0 0 1 3-3Z"/></svg>
+  </button>
+  <button type="button" id="close" title="关闭（Esc）" aria-label="关闭聊天窗">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
+  </button>
+</header>
+<main id="list" role="log" aria-live="polite" aria-label="聊天记录"></main>
+<div class="tip" id="tip" role="status" hidden><span id="tipText"></span><button type="button" id="retry">重发</button></div>
+<footer>
+  <form class="row" id="form" autocomplete="off">
+    <button type="button" class="thinkBtn" id="think" title="深度思考：她会想得更久、更认真（再点一下关掉）" aria-label="深度思考" aria-pressed="false">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-3.6 10.8c.6.5 1 1.2 1 2V16h5.2v-.2c0-.8.4-1.5 1-2A6 6 0 0 0 12 3Z"/></svg>
+    </button>
+    <button type="button" class="thinkBtn" id="look" title="给她看看屏幕（会截一张图发给视觉模型）" aria-label="给她看看屏幕" hidden>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z"/><circle cx="12" cy="12" r="2.8"/></svg>
+    </button>
+    <textarea id="input" rows="1" maxlength="300" placeholder="和小嬅说点什么…" title="Enter 发送，Shift+Enter 换行，Esc 关闭" aria-label="和小嬅说话"></textarea>
+    <button type="submit" class="send" id="send">发送</button>
+  </form>
+  <div class="quick" id="quick">
+    <button type="button" data-say="在忙吗？">在忙吗</button>
+    <button type="button" data-say="陪我聊两句嘛">陪我聊聊</button>
+    <button type="button" data-say="今天有点累…">今天好累</button>
+    <button type="button" data-say="夸夸我">夸夸我</button>
+  </div>
+</footer>
+<script>
+(function () {
+  'use strict';
+  const T = window.__TAURI__, invoke = T ? T.core.invoke : null;
+  const $ = (id) => document.getElementById(id);
+  const list = $('list'), input = $('input'), sendBtn = $('send'), tip = $('tip'), tipText = $('tipText'), status = $('status');
+  const MOOD = { 开心: '😊', 害羞: '☺️', 生气: '😠', 困: '😴', 思考: '🤔', 惊讶: '😮', 疑惑: '🤨', 难过: '😢', 点头: '🙂', 打招呼: '👋', 挥手: '👋', 得意: '😌', 无聊: '😑', 星星眼: '🤩', 嘟嘴: '😗', 猫嘴: '🐱' };
+  const IDLE = '在这里陪你';
+  let busy = false, cur = null, scene = '';
+
+  /* 发给桌宠窗口：Tauri 用事件；浏览器调试时 postMessage 给 opener */
+  const send = (c) => {
+    if (T) T.event.emitTo('main', 'pet://cmd', c).catch(() => {});
+    else if (window.opener) window.opener.postMessage(c, '*');
+  };
+  const hide = () => {
+    if (invoke) invoke('chatwin_hide').catch(() => {});
+    else { send({ type: 'chatwin', open: false }); window.close(); }
+  };
+
+  const loadLog = () => { try { const a = JSON.parse(localStorage.getItem('xh-chat-log') || '[]'); return Array.isArray(a) ? a : []; } catch (_) { return []; } };
+  const pad = (n) => String(n).padStart(2, '0');
+  const hhmm = (t) => { const d = new Date(t || Date.now()); return pad(d.getHours()) + ':' + pad(d.getMinutes()); };
+  const dayKey = (t) => { const d = new Date(t || Date.now()); return d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate(); };
+  function dayLabel(t) {
+    const d = new Date(t), now = new Date(), y = new Date(now); y.setDate(now.getDate() - 1);
+    if (dayKey(t) === dayKey(now)) return '今天';
+    if (dayKey(t) === dayKey(y)) return '昨天';
+    return (d.getFullYear() !== now.getFullYear() ? d.getFullYear() + '年' : '') + (d.getMonth() + 1) + '月' + d.getDate() + '日';
+  }
+  const nearBottom = () => list.scrollHeight - list.scrollTop - list.clientHeight < 60;
+  const scrollDown = (force) => { if (force || nearBottom()) list.scrollTop = list.scrollHeight; };
+
+  let lastDay = '';
+  function addMsg(role, text, mood, t, typing) {
+    if (t) { const k = dayKey(t); if (k !== lastDay) { lastDay = k; const s = document.createElement('div'); s.className = 'day'; s.textContent = dayLabel(t); list.appendChild(s); } }
+    const d = document.createElement('div');
+    d.className = 'm ' + (role === 'user' ? 'u' : 'a') + (typing ? ' typing' : '');
+    if (role !== 'user') { const m = document.createElement('span'); m.className = 'mood'; m.textContent = MOOD[mood] || ''; d.appendChild(m); }
+    const b = document.createElement('span'); b.className = 'body'; b.textContent = text || ''; d.appendChild(b);
+    if (t && !typing) { const tm = document.createElement('span'); tm.className = 'tm'; tm.textContent = hhmm(t); d.appendChild(tm); }
+    list.appendChild(d);
+    return d;
+  }
+  /* 她做的事：一行小标签（run 进行中 / ok 做到了 / no 没做） */
+  function addTool(label, state, id) {
+    const d = document.createElement('div');
+    d.className = 'tool ' + (state || 'ok'); d.textContent = label;
+    if (id) d.dataset.id = id;
+    list.appendChild(d);
+    return d;
+  }
+  function render() {
+    list.textContent = ''; lastDay = ''; cur = null; thinkEl = null; tools.clear();
+    const log = loadLog();
+    if (!log.length) { const e = document.createElement('div'); e.className = 'empty'; e.textContent = '想聊什么都可以呀～\n我在这里。'; e.style.whiteSpace = 'pre-line'; list.appendChild(e); }
+    log.forEach((m) => {
+      if (m.role !== 'user' && Array.isArray(m.tools)) m.tools.forEach((x) => addTool(x.n, x.ok ? 'ok' : 'no'));
+      addMsg(m.role === 'user' ? 'user' : 'assistant', m.content, m.mood, m.t);
+    });
+    scrollDown(true);
+  }
+  /* 当前这轮的思考过程（不进记录，只在这次显示） */
+  let thinkEl = null;
+  const tools = new Map();
+  function addThink(text) {
+    const e = list.querySelector('.empty'); if (e) e.remove();
+    if (!thinkEl) {
+      thinkEl = document.createElement('details'); thinkEl.className = 'think'; thinkEl.open = true;
+      thinkEl.innerHTML = '<summary>她在想…</summary><div></div>';
+      if (cur && cur.parentNode === list) list.insertBefore(thinkEl, cur); else list.appendChild(thinkEl);
+    }
+    const b = thinkEl.querySelector('div'); b.textContent += text; b.scrollTop = b.scrollHeight;
+    scrollDown();
+  }
+  function closeThink() { if (thinkEl) { thinkEl.open = false; thinkEl.querySelector('summary').textContent = '她想了想…（点开看）'; } }
+  function showAsk(id, text) {
+    const e = list.querySelector('.empty'); if (e) e.remove();
+    const d = document.createElement('div'); d.className = 'ask'; d.dataset.id = id;
+    const p = document.createElement('p'); p.textContent = text; d.appendChild(p);
+    const b = document.createElement('div'); b.className = 'b';
+    b.innerHTML = '<button type="button" class="n">不要</button><button type="button" class="y">好</button>';
+    b.addEventListener('click', (ev) => { const x = ev.target.closest('button'); if (x) send({ type: 'confirm', id, ok: x.classList.contains('y') }); });
+    d.appendChild(b);
+    if (cur && cur.parentNode === list) list.insertBefore(d, cur); else list.appendChild(d);
+    scrollDown(true);
+    setTimeout(() => { const y = d.querySelector('.y'); if (y) y.focus(); }, 30);
+  }
+  const dropAsk = (id) => { const d = list.querySelector(`.ask[data-id="${id}"]`); if (d) d.remove(); };
+  function setBusy(on) {
+    busy = !!on;
+    sendBtn.textContent = busy ? '停下' : '发送';
+    sendBtn.classList.toggle('stop', busy);
+    status.classList.toggle('typing', busy);
+    status.textContent = busy ? '正在输入…' : (scene || IDLE);
+  }
+  function startReply(text, mood) {
+    const e = list.querySelector('.empty'); if (e) e.remove();
+    if (!cur) cur = addMsg('assistant', text || '', mood || '', Date.now(), true);
+    scrollDown(true);
+  }
+
+  /* 桌宠窗口 → 这里 */
+  function onUi(m) {
+    if (!m || !m.k) return;
+    if (m.k === 'user') {
+      tip.hidden = true; thinkEl = null; tools.clear(); setBusy(true);
+      const e = list.querySelector('.empty'); if (e) e.remove();
+      /* 记录变化（storage）可能比这条消息先到、已经画过了：别画两遍 */
+      const le = list.lastElementChild;
+      if (!(le && le.classList.contains('u') && le.querySelector('.body').textContent === m.text)) addMsg('user', m.text, '', m.t);
+      scrollDown(true);
+    }
+    else if (m.k === 'start') { tip.hidden = true; setBusy(true); startReply(); }
+    else if (m.k === 'mood') { startReply(); cur.querySelector('.mood').textContent = MOOD[m.tag] || ''; }
+    else if (m.k === 'delta') { startReply(); closeThink(); cur.querySelector('.body').textContent += m.text; scrollDown(); }
+    else if (m.k === 'think' && m.text != null) { status.textContent = '正在认真想…'; addThink(m.text); }
+    else if (m.k === 'think') paintThink(m.on);
+    else if (m.k === 'vision') $('look').hidden = !m.on;
+    else if (m.k === 'tip') { tip.hidden = false; tipText.textContent = m.text || ''; }
+    else if (m.k === 'tool') {
+      let d = tools.get(m.id);
+      if (!d) {
+        d = addTool(m.label, m.state, m.id); tools.set(m.id, d);
+        if (cur && cur.parentNode === list && !cur.querySelector('.body').textContent) list.insertBefore(d, cur); // 放在她这次回复的上面
+      } else { d.className = 'tool ' + m.state; d.textContent = m.label; }
+      if (m.state === 'run') status.textContent = '正在帮你' + m.label;
+      scrollDown();
+    }
+    else if (m.k === 'ask') showAsk(m.id, m.text);
+    else if (m.k === 'askdone') dropAsk(m.id);
+    else if (m.k === 'busy') setBusy(m.on);
+    else if (m.k === 'scene') { scene = m.text || ''; setBusy(busy); }
+    else if (m.k === 'end') {
+      setBusy(false); endAt = Date.now();
+      list.querySelectorAll('.ask').forEach((d) => d.remove());
+      if (m.kind === 'done' && cur) {
+        /* 正常说完：保留这次的思考过程和动作标签，只补上时间 */
+        cur.classList.remove('typing');
+        const b = cur.querySelector('.body'); if (!b.textContent) b.textContent = m.text || '';
+        const tm = document.createElement('span'); tm.className = 'tm'; tm.textContent = hhmm(m.t); cur.appendChild(tm);
+        closeThink(); cur = null; scrollDown();
+        return;
+      }
+      render(); // 出错 / 停下：以记录为准（出错时她会把刚才那句撤回）
+      if (m.kind === 'error') { tip.hidden = false; tipText.textContent = m.text || '出错了…'; }
+      else if (m.kind === 'cancel') { tip.hidden = false; tipText.textContent = '停在半路啦'; }
+    }
+    else if (m.k === 'sync') {
+      scene = m.scene || '';
+      paintThink(m.think);
+      $('look').hidden = !m.vision;
+      render();
+      setBusy(m.busy);
+      if (m.busy) { startReply(m.partial || '', m.mood); }
+      if (m.ask) showAsk(m.ask.id, m.ask.text);
+    }
+  }
+  if (T) T.event.listen('pet://chatui', (e) => onUi(e.payload));
+  window.addEventListener('message', (e) => { if (e.data && e.data.chatui) onUi(e.data.chatui); });
+  /* 记录在别处变了（主动搭话、面板清空 / 导入）：不在流式中就重画 */
+  /* 刚说完的那一下记录也会变：那次已经画好了（含思考过程），不重画 */
+  let endAt = 0;
+  window.addEventListener('storage', (e) => { if (e.key === 'xh-chat-log' && !busy && Date.now() - endAt > 2000) render(); });
+
+  /* 输入 */
+  const grow = () => { input.style.height = 'auto'; input.style.height = Math.min(110, input.scrollHeight) + 'px'; };
+  function say(text) {
+    text = String(text || '').trim(); if (!text) return;
+    input.value = ''; grow(); tip.hidden = true;
+    send({ type: 'say', text });
+  }
+  $('form').addEventListener('submit', (e) => { e.preventDefault(); if (busy) send({ type: 'stop' }); else say(input.value); });
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); if (!busy) say(input.value); }
+  });
+  input.addEventListener('input', grow);
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.preventDefault(); hide(); } });
+  $('retry').addEventListener('click', () => { tip.hidden = true; send({ type: 'retry' }); });
+  const thinkBtn = $('think');
+  function paintThink(on) { thinkBtn.setAttribute('aria-pressed', String(!!on)); }
+  thinkBtn.addEventListener('click', () => send({ type: 'think', on: thinkBtn.getAttribute('aria-pressed') !== 'true' }));
+  $('look').addEventListener('click', () => { if (busy) return; tip.hidden = true; send({ type: 'look', text: input.value.trim() }); input.value = ''; grow(); });
+  $('close').addEventListener('click', hide);
+  $('toBar').addEventListener('click', () => send({ type: 'bar' }));
+  document.querySelectorAll('#quick [data-say]').forEach((b) => b.addEventListener('click', () => { if (!busy) say(b.dataset.say); }));
+  /* 再次被叫出来时（窗口只是隐藏、没销毁）重新同步一下 */
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) { send({ type: 'chatsync' }); setTimeout(() => input.focus(), 30); } });
+  window.addEventListener('focus', () => input.focus());
+
+  render(); setBusy(false);
+  send({ type: 'chatsync' });
+  setTimeout(() => input.focus(), 60);
+})();
+</script>
+</body>
+</html>

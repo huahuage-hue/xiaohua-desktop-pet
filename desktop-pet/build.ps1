@@ -1,7 +1,12 @@
 ﻿# 小嬅桌宠 · 一键构建（Windows 10/11，PowerShell 5.1+）
 # 用法：右键“使用 PowerShell 运行”，或在 desktop-pet 目录执行：  powershell -ExecutionPolicy Bypass -File build.ps1
-# 参数：-Dev 以开发模式运行（不打包，改网页后刷新即可）；-SkipInstall 跳过环境检查
-param([switch]$Dev, [switch]$SkipInstall, [string]$OutDir = 'D:\小嬅桌宠')
+# 参数：-Dev 以开发模式运行（不打包，改网页后刷新即可）；-SkipInstall 跳过环境检查；-NoOpen 构建完不打开资源管理器
+#       -Release 额外生成自动更新要发布的文件（OutDir\发布\v版本\：安装包 + latest.json + 发布说明.txt）
+#       -UpdateBase Gitee 发行版下载地址前缀；-Notes 更新说明（显示在面板「更新」里）
+# v0.6.0 起安装包必须用更新签名私钥签名（默认 %USERPROFILE%\.tauri\xiaohua-updater.key，不要放进源码目录）
+param([switch]$Dev, [switch]$SkipInstall, [switch]$NoOpen, [switch]$Release, [string]$OutDir = 'D:\小嬅桌宠',
+  [string]$UpdateBase = 'https://gitee.com/your-name/xiaohua-pet-release/releases/download',
+  [string]$Notes = '', [string]$Key = "$env:USERPROFILE\.tauri\xiaohua-updater.key")
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [Text.Encoding]::UTF8
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -55,24 +60,69 @@ if (Test-Path $wardrobe) { $wd = Join-Path $dst 'wardrobe'; if (Test-Path $wd) {
 # 3. 构建
 Set-Location (Join-Path $here 'src-tauri')
 if ($Dev) { Step '开发模式运行'; cargo tauri dev; exit }
+$ver = (Get-Content (Join-Path $here 'src-tauri\tauri.conf.json') -Raw -Encoding UTF8 | ConvertFrom-Json).version
+Step "签名私钥（v$ver）"
+if (-not (Test-Path $Key)) {
+  throw "没找到更新签名私钥：$Key`n  首次可运行：cargo tauri signer generate -w `"$Key`" --ci -p `"`"`n  然后把 $Key.pub 的内容填进 tauri.conf.json → plugins.updater.pubkey。`n  注意：已经装上的旧版本只认原来的公钥，私钥丢了就没法再给它们推更新。"
+}
+$env:TAURI_SIGNING_PRIVATE_KEY = Get-Content $Key -Raw
+Write-Host "  $Key"
 Step '构建（首次编译约 5–10 分钟）'
 cargo tauri build
 if ($LASTEXITCODE -ne 0) { throw '构建失败：把上面的报错发给我即可' }
+Remove-Item Env:TAURI_SIGNING_PRIVATE_KEY -ErrorAction SilentlyContinue
 
 $out = Join-Path $here 'src-tauri\target\release'
+$setup = Join-Path $out "bundle\nsis\小嬅桌宠_${ver}_x64-setup.exe"
+if (-not (Test-Path $setup)) { throw "没找到安装包：$setup" }
 
 # 4. 复制到交付目录（默认 D:\小嬅桌宠，可用 -OutDir 修改；运行中的桌宠会先被关闭）
 Step "复制到 $OutDir"
 $exeDst = Join-Path $OutDir '小嬅桌宠.exe'
-Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $exeDst } | Stop-Process -Force
+# 等它真正退出、松开 exe 再复制（只 Stop-Process 不等，偶尔会“文件被占用”）
+Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $exeDst } | Stop-Process -Force -PassThru | Wait-Process -Timeout 10 -ErrorAction SilentlyContinue
+Start-Sleep -Milliseconds 300
 New-Item -ItemType Directory -Force -Path (Join-Path $OutDir '安装包') | Out-Null
 Copy-Item "$out\xiaohua-pet.exe" $exeDst -Force
-Get-ChildItem "$out\bundle" -Recurse -Include *.exe -ErrorAction SilentlyContinue | Copy-Item -Destination (Join-Path $OutDir '安装包') -Force
+# 只复制这一版的安装包（bundle 目录里会留着以前各版本的旧包）
+Copy-Item $setup (Join-Path $OutDir '安装包') -Force
 $note = Join-Path $here '使用说明.txt'
 if (Test-Path $note) { Copy-Item $note $OutDir -Force }
 
+# 5. 自动更新发布文件：安装包换成英文名（Gitee 附件不认中文名），配 latest.json
+if ($Release) {
+  Step '生成自动更新发布文件'
+  $sig = "$setup.sig"
+  if (-not (Test-Path $sig)) { throw "没找到签名文件：$sig（tauri.conf.json 里要开 bundle.createUpdaterArtifacts）" }
+  $rel = Join-Path $OutDir "发布\v$ver"
+  New-Item -ItemType Directory -Force -Path $rel | Out-Null
+  $asset = "xiaohua-pet_${ver}_x64-setup.exe"
+  Copy-Item $setup (Join-Path $rel $asset) -Force
+  if (-not $Notes) { $Notes = "小嬅桌宠 v$ver" }
+  $url = "$($UpdateBase.TrimEnd('/'))/v$ver/$asset"
+  $latest = [ordered]@{
+    version   = $ver
+    notes     = $Notes
+    pub_date  = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
+    platforms = [ordered]@{ 'windows-x86_64' = [ordered]@{ signature = (Get-Content $sig -Raw).Trim(); url = $url } }
+  }
+  [IO.File]::WriteAllText((Join-Path $rel 'latest.json'), ($latest | ConvertTo-Json -Depth 5), (New-Object Text.UTF8Encoding $false))
+  $guide = @"
+小嬅桌宠 v$ver 发布步骤（Gitee）
+1. 打开 Gitee 仓库 → 发行版 → 创建发行版，标签填 v$ver
+2. 上传附件：$asset
+3. 把 latest.json 放到仓库 master 分支根目录（覆盖旧的）并提交
+4. 等一两分钟，在旧版本面板「设置 → 更新 → 检查更新」确认能看到 v$ver
+下载地址：$url
+角色设计 © 樺樺嗝
+"@
+  [IO.File]::WriteAllText((Join-Path $rel '发布说明.txt'), $guide, (New-Object Text.UTF8Encoding $true))
+  if ($UpdateBase -like '*your-name*') { Write-Host '  注意：UpdateBase 还是占位地址，latest.json 里的下载链接需要改成真实仓库' -ForegroundColor Yellow }
+  Write-Host "  发布文件：$rel"
+}
+
 Step '完成'
 Write-Host "  免安装版：$exeDst"
-Get-ChildItem (Join-Path $OutDir '安装包') -Filter *.exe | ForEach-Object { Write-Host "  安装包：$($_.FullName)" }
-explorer.exe $OutDir
+Write-Host "  安装包：$(Join-Path $OutDir '安装包')\小嬅桌宠_${ver}_x64-setup.exe"
+if (-not $NoOpen) { explorer.exe $OutDir }
 
