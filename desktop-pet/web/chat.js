@@ -42,7 +42,7 @@
   const memText = (q) => (XH.memory ? XH.memory.digest(q) : '');
   const sceneText = () => (XH.scene && XH.scene.hint ? XH.scene.hint() : '');
 
-  const TOOL_LINE = '你可以用工具帮用户做一些简单的事：看时间、查天气、设提醒、记 / 查 / 完成 DDL（作业、考试、报名截止）、记便签、打开网页或浏览器搜索、打开电脑上的程序、读写剪贴板。' +
+  const TOOL_LINE = '你可以用工具帮用户做一些简单的事：看时间、查天气、设提醒、记 / 查 / 完成 DDL（作业、考试、报名截止）、看今日运势、记便签、打开网页或浏览器搜索、打开电脑上的程序、读写剪贴板。' +
     '用户提到有作业、报告、考试、报名之类要在某天前完成时，主动用 add_ddl 记下来；说交了、做完了就用 finish_ddl。' +
     '用户想让你做这些事时直接调用工具；需要确认的工具会自动弹出确认，你不用先口头问。工具结果回来后用一两句话告诉用户结果，不要编造结果。' +
     '工具做不到的事（删文件、运行命令、操作别的软件里面的内容）就老实说做不到。';
@@ -470,6 +470,58 @@
         return;
       }
       turn();
+    },
+    /* 她自己说一段（v0.7.0：运势、校园新闻等）：开了对话就让模型按 prompt 用她的语气说，没开 / 出错就说 fallback；
+       都写进记录（opt.label 作为标签），hooks 同 send（侧边窗跟着显示）。opt = {label, mood} */
+    narrate(S, P, hooks, prompt, fallback, opt) {
+      const H = hooks || {}, B = XH.bubble, c = cfg(S), o = opt || {};
+      if (cancel) cancel();
+      if (memCancel) { memCancel(); memCancel = null; extracting = false; }
+      const tools = o.label ? { tools: [{ n: o.label, ok: true }] } : {};
+      const plain = (text, mood) => {
+        mood = mood || o.mood || '开心';
+        P.wake(); P.emote(mood);
+        if (H.start) H.start();
+        if (H.mood) H.mood(mood);
+        if (B) { B.chatStart(); B.append(text); B.chatEnd(); }
+        if (H.delta) H.delta(text);
+        const l = loadLog(); l.push({ role: 'assistant', content: text, mood, t: Date.now(), ...tools }); saveLog(l);
+        if (H.end) H.end('done', text);
+      };
+      if (!S.chatOn || !c.base || !c.model) { plain(fallback); return; }
+      const messages = [
+        { role: 'system', content: system(c, '') + '\n' + prompt },
+        { role: 'user', content: '（现在说吧。不要提这条提示。）' },
+      ];
+      P.wake();
+      P.play('think', false, true, 1, { quiet: true, silent: true });
+      if (B) B.chatStart();
+      if (H.start) H.start();
+      let reply = '', mood = '', over = false;
+      const feed = moodStream((tag) => {
+        if (!mood) mood = tag;
+        if (B && reply) B.mark(() => P.emote(tag)); else P.emote(tag);
+        if (H.mood) H.mood(tag);
+      }, (s) => { s = clean(s); if (!s) return; reply += s; if (B) B.append(s); if (H.delta) H.delta(s); });
+      const split = thinkSplit(() => {}, feed);
+      const req = request(c, messages, false, (k, t) => {
+        if (k === 'delta') return split(t);
+        if (!FINAL[k] || over) return;
+        over = true; cancel = null;
+        if (k === 'done') {
+          feed.flush();
+          reply = reply.trim();
+          if (!reply) { if (B) B.hide(true); plain(fallback); return; }
+          if (B) B.chatEnd();
+          const l = loadLog(); l.push({ role: 'assistant', content: reply, mood, t: Date.now(), ...tools }); saveLog(l);
+          if (H.end) H.end('done', reply);
+        } else if (k === 'error') {
+          if (B) B.hide(true);
+          if (H.end) H.end('cancel', '');
+          setTimeout(() => plain(fallback), 300); // 模型连不上就念模板，别让你白等
+        } else { if (B) B.hide(); if (H.end) H.end('cancel', reply); }
+      }, 300);
+      cancel = () => { if (over) return; req(); };
     },
     /* 主动搭话：闲下来自己开一句；返回 false 表示当前不方便 */
     proactive(S, P) {

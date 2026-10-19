@@ -129,6 +129,19 @@
   .todo-item span { flex: 1; min-width: 0; word-break: break-all; white-space: pre-wrap; }
   .todo-item button { flex: none; padding: 1px 6px; font-size: 10px; }
   .todo .none { color: #A38E7A; font-size: 11px; margin: 2px 0 4px; }
+  /* 今日运势（v0.7.0） */
+  .fortune { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; align-items: center; font-size: 12px; }
+  .fortune .lv { grid-row: span 2; font: 700 22px/1 "YouYuan", "幼圆", "Microsoft YaHei UI", sans-serif; color: #8B6A4E; padding: 6px 10px; border-radius: 10px; background: var(--accent-soft); text-align: center; }
+  .fortune .lv.good { color: #B5462E; background: #FBE3DA; }
+  .fortune .st { color: #D9A23B; letter-spacing: 1px; }
+  .fortune .subs { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; gap: 2px 10px; color: var(--ink-2); }
+  .fortune .subs b { font-weight: 400; color: var(--ink); margin-right: 4px; }
+  .fortune .luck { grid-column: 1 / -1; color: var(--ink-2); }
+  .fortune .sw2 { display: inline-block; width: 11px; height: 11px; border-radius: 3px; vertical-align: -1px; margin-right: 3px; border: 1px solid rgba(0,0,0,.12); }
+  .fortune .yj { grid-column: 1 / -1; display: grid; grid-template-columns: auto 1fr; gap: 2px 6px; }
+  .fortune .yj i { font-style: normal; font-weight: 700; color: #fff; border-radius: 4px; padding: 0 5px; font-size: 11px; height: 17px; line-height: 17px; }
+  .fortune .yj .y { background: #8DB580; } .fortune .yj .j { background: #C4505E; }
+  .fortune .line { grid-column: 1 / -1; color: #7A5A40; font-family: "YouYuan", "幼圆", "Microsoft YaHei UI", sans-serif; }
   /* DDL（v0.7.0）：左边色条按紧急程度 */
   .ddl-list { display: flex; flex-direction: column; gap: 5px; max-height: 300px; overflow: auto; }
   .ddl-list .none { color: var(--ink-2); font-size: 12px; margin: 4px 0; }
@@ -190,6 +203,11 @@
       <button data-cmd="weather">今天天气？</button>
       <button data-cmd="chat" class="pri" style="grid-column: span 2">和她聊天（双击小嬅也可以）</button>
     </div>
+  </section>
+  <section aria-labelledby="h-fortune">
+    <h2 id="h-fortune">今日运势<small style="font-weight:400; margin-left:6px">每天一换 · 仅供娱乐</small></h2>
+    <div class="fortune" id="fortune"></div>
+    <div class="actions" style="margin-top:8px"><button data-cmd="fortune" class="pri" style="grid-column: span 2">让她讲给我听</button></div>
   </section>
 </div>
 
@@ -532,6 +550,7 @@
 <script src="memory.js"></script>
 <script src="tools.js"></script>
 <script src="ddl.js"></script>
+<script src="fortune.js"></script>
 <script src="chat.js"></script>
 <script src="vision.js"></script>
 <script src="scene.js"></script>
@@ -801,6 +820,23 @@
     note.textContent = r.ok ? '她看到：' + r.text : '没看成：' + r.why;
   });
   $('vReset').addEventListener('click', () => { XH.vision.resetConsent(); $('vTestNote').textContent = '好，下次看屏幕之前会再问你一次。'; });
+
+  /* ---------- 今日运势（v0.7.0，本地生成，和桌宠那边同一个结果） ---------- */
+  function paintFortune() {
+    const box = $('fortune'); if (!box || !XH.fortune) return;
+    const f = XH.fortune.today(S), st = XH.fortune.stars;
+    box.textContent = '';
+    const el = (tag, cls, txt) => { const e = document.createElement(tag); if (cls) e.className = cls; if (txt != null) e.textContent = txt; return e; };
+    box.append(el('div', 'lv' + (f.total >= 4 ? ' good' : ''), f.level), el('div', 'st', st(f.total)), el('div', '', f.date.slice(5).replace('-', ' 月 ') + ' 日 · ' + f.who));
+    const subs = el('div', 'subs');
+    [['学业', f.study], ['人际', f.social], ['财运', f.money], ['健康', f.health]].forEach(([k, v]) => { const d = el('div'); d.append(el('b', '', k), el('span', 'st', st(v))); subs.appendChild(d); });
+    const luck = el('div', 'luck'); const sw = el('span', 'sw2'); sw.style.background = f.color.hex;
+    luck.append('幸运色 ', sw, f.color.name + ' · 幸运数字 ' + f.number + ' · 幸运物 ' + f.item);
+    const yj = el('div', 'yj'); yj.append(el('i', 'y', '宜'), el('span', '', f.yi.join('、')), el('i', 'j', '忌'), el('span', '', f.ji.join('、')));
+    box.append(subs, luck, yj, el('div', 'line', f.line));
+  }
+  paintFortune();
+  setInterval(() => { if (!$('p-play').hidden && !document.hidden) paintFortune(); }, 60000); // 过了零点换一天
 
   /* ---------- DDL（v0.7.0，ddl.js 存在 localStorage，提醒在桌宠窗口里跑） ---------- */
   const D = XH.ddl;

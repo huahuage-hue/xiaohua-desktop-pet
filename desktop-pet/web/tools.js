@@ -37,6 +37,7 @@
       level: { type: 'number', description: '重要程度 1 普通 / 2 重要 / 3 很急（可空）' },
     }, ['title', 'due']),
     fn('list_ddl', '查看用户还没完成的 DDL'),
+    fn('get_fortune', '查看用户今天的运势（纯娱乐，同一天结果固定）。拿到结果后用你的语气讲，不要改结果'),
     fn('finish_ddl', '把某个 DDL 标记为已完成（用户说交了 / 做完了）', { keyword: { type: 'string', description: '标题或课程里的关键词' } }, ['keyword']),
     fn('take_note', '帮用户记一条便签（用户能在控制面板里看到）', { text: { type: 'string', description: '便签内容' } }, ['text']),
     fn('list_notes', '查看最近记下的便签'),
@@ -51,7 +52,7 @@
     question: { type: 'string', description: '用户想从屏幕上知道什么（可空）' },
   });
   /* 侧边窗 / 气泡里显示用的动作名 */
-  const NAME = { add_ddl: '记 DDL', list_ddl: '看 DDL', finish_ddl: '完成 DDL', get_time: '看时间', get_weather: '查天气', set_reminder: '设提醒', list_reminders: '看提醒', cancel_reminder: '取消提醒', take_note: '记便签', list_notes: '看便签', open_url: '打开网页', web_search: '搜索', open_app: '打开程序', read_clipboard: '看剪贴板', write_clipboard: '复制到剪贴板', look_screen: '看屏幕' };
+  const NAME = { add_ddl: '记 DDL', list_ddl: '看 DDL', finish_ddl: '完成 DDL', get_fortune: '看运势', get_time: '看时间', get_weather: '查天气', set_reminder: '设提醒', list_reminders: '看提醒', cancel_reminder: '取消提醒', take_note: '记便签', list_notes: '看便签', open_url: '打开网页', web_search: '搜索', open_app: '打开程序', read_clipboard: '看剪贴板', write_clipboard: '复制到剪贴板', look_screen: '看屏幕' };
 
   /* ---------- 提醒 ---------- */
   const R = { P: null, timer: 0 };
@@ -143,6 +144,11 @@
         if (!hit.length) return no(`没找到包含「${a.keyword}」的未完成 DDL。`, '没找到这个 DDL');
         XH.ddl.setDone(hit[0].id, true);
         return ok(`已把「${hit[0].title}」标记为完成。` + (hit.length > 1 ? `（还有 ${hit.length - 1} 个也匹配，没动）` : ''), '完成了 · ' + hit[0].title);
+      }
+      case 'get_fortune': {
+        if (!XH.fortune) return no('运势功能没加载。');
+        const f = XH.fortune.today(S);
+        return ok(XH.fortune.data(f) + '。讲的时候带一句仅供娱乐。', `看了今日运势 · ${f.level}`);
       }
       case 'take_note': {
         const text = clip(String(a.text || '').trim(), 500);

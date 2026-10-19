@@ -254,6 +254,12 @@
       if (tip) tip.hidden = true;
       XH.chat.send(text, S, P, H, opt);
     }
+    /* 今日运势（v0.7.0）：她用自己的语气讲（没开对话就念模板），记录里标「今日运势」 */
+    function tellFortune() {
+      if (!XH.fortune || !XH.chat) return;
+      const f = XH.fortune.today(S);
+      XH.chat.narrate(S, P, H, XH.fortune.prompt(f), XH.fortune.text(f), { label: '今日运势', mood: f.total >= 4 ? '开心' : '思考' });
+    }
     const lookSend = (text) => {
       const can = XH.vision ? XH.vision.canLook(S) : { ok: false, why: '看屏幕功能没加载' };
       if (!can.ok) { showTip(can.why); toWin({ k: 'tip', text: can.why }); return; }
@@ -280,7 +286,7 @@
     window.PET_CHAT = {
       open: openChat, close: closeAll, send: chatSend, openBar, closeBar, openSide, closeSide, setScene: updateScene,
       state: () => ({ bar: st.barOpen, side: st.sideOpen, busy: busyNow, think: !!S.think, ask: curAsk }),
-      answer: answerAsk, setThink,
+      answer: answerAsk, setThink, fortune: tellFortune,
     };
 
     /* 桌面场景：变化时更新徽标、全屏自动隐藏 */
@@ -415,6 +421,7 @@
       else if (c.type === 'confirm') answerAsk(c.id, !!c.ok);
       else if (c.type === 'think') setThink(!!c.on);
       else if (c.type === 'look' && !busyNow) lookSend(c.text);
+      else if (c.type === 'fortune') tellFortune();
       else if (c.type === 'time' && XH.assist) XH.assist.sayTime();
       else if (c.type === 'weather' && XH.assist) XH.assist.sayWeather(true);
       else if (c.type === 'chime' && XH.assist) XH.assist.testChime(c.h | 0);
