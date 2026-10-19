@@ -2,7 +2,7 @@
 // 写入 HKCU\Software\Microsoft\Windows\CurrentVersion\Run 下的「小嬅桌宠」= "exe路径" --autostart
 // - 只影响当前用户，不需要管理员权限；默认不开启
 // - 状态每次都实时读注册表（任务管理器「启动」页里改了也能同步）
-// - exe 挪了位置：启动时发现路径不一致，自动改成当前路径
+// - exe 挪了位置：启动时发现登记的 exe 已经不存在，自动改成当前路径（v0.6.0 起登记的 exe 还在就不改）
 
 pub const FLAG: &str = "--autostart";
 
@@ -114,10 +114,15 @@ pub fn set_enabled(on: bool) -> Result<bool, String> {
     Ok(is_enabled())
 }
 
-/// 已开启但路径和当前 exe 不一致（被挪动过）→ 改成当前路径
+/// 已开启但登记的 exe 已经不在了（被挪动 / 删掉）→ 改成当前路径
+/// v0.6.0：登记的 exe 还在就不动——否则随便从下载目录 / 测试目录运行一份，就会把开机自启抢过去
 pub fn repair() {
     if let (Some(cur), Ok(want)) = (reg::get(), command_line()) {
-        if !cur.eq_ignore_ascii_case(&want) {
+        if cur.eq_ignore_ascii_case(&want) {
+            return;
+        }
+        let registered = cur.trim().trim_start_matches('"').split('"').next().unwrap_or("").trim();
+        if registered.is_empty() || !std::path::Path::new(registered).is_file() {
             let _ = reg::set(&want);
         }
     }

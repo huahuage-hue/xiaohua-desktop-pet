@@ -29,7 +29,7 @@
     const P = XH.pet;
 
     /* 设置：localStorage 与控制面板窗口共享（同源），面板改动后通过 pet://settings 通知 */
-    const DEF = { idleFreq: 2, bubbles: true, follow: true, props: true, react: true, scale: 100, top: true, sfx: true, vol: 25, voice: true, swing: 2, outfit: 'classic', acc: {}, autoDress: true, festival: true, ...(XH.DEF_ASSIST || {}), ...(XH.DEF_SCENE || {}), ...((XH.chat && XH.chat.DEF_CHAT) || {}), ...(XH.DEF_VISION || {}) };
+    const DEF = { idleFreq: 2, bubbles: true, follow: true, props: true, react: true, scale: 100, top: true, sfx: true, vol: 25, voice: true, swing: 2, outfit: 'classic', acc: {}, autoDress: true, festival: true, ...(XH.DEF_ASSIST || {}), ...(XH.DEF_SCENE || {}), ...((XH.chat && XH.chat.DEF_CHAT) || {}), ...(XH.DEF_VISION || {}), autoUpdate: true };
     /* sv：设置版本。v0.1.3 起默认音量 40 → 25；v0.3.0 去掉 roam，加 outfit / acc / autoDress；v0.5.0 加场景感知；v0.6.0 加聊天方式 chatMode */
     const load = () => {
       let s; try { s = JSON.parse(localStorage.getItem('xh-pet') || '{}'); } catch (_) { s = {}; }
@@ -285,6 +285,28 @@
       XH.scene.start(() => S);
       updateScene();
     }
+
+    /* ---------- 自动更新（v0.6.0）：启动 1 分钟后 + 每天查一次；有新版本她说一声（每个版本只说一次），装不装在面板「设置」里点 ---------- */
+    const UPD_SEEN = 'xh-update-seen';
+    function checkUpdate() {
+      if (!invoke || S.autoUpdate === false) return;
+      invoke('update_check').then((u) => {
+        if (!u || !u.available) return;
+        let seen = ''; try { seen = localStorage.getItem(UPD_SEEN) || ''; } catch (_) { /* 无所谓 */ }
+        if (seen === u.version) return;
+        try { localStorage.setItem(UPD_SEEN, u.version); } catch (_) { /* 无所谓 */ }
+        let tries = 0;
+        const tell = () => {
+          if ((st.chatOpen || st.dragging || P.busy() || (XH.bubble && XH.bubble.busy())) && tries++ < 30) { setTimeout(tell, 20000); return; }
+          P.wake();
+          P.say(`有新版本 v${u.version} 啦～\n右键我 → 控制面板「设置」里就能更新`, { type: 'say', force: true, ms: 9000 }, 'sparkle');
+        };
+        tell();
+      }).catch(() => { /* 没配置地址 / 断网：安静地算了 */ });
+    }
+    setTimeout(checkUpdate, 60000);
+    setInterval(checkUpdate, 24 * 3600e3);
+    window.PET_UPDATE = checkUpdate;
 
     /* 小助手：报时 / 天气 / 提醒 / 劝睡 */
     if (XH.assist) XH.assist.start(P, () => S, null);

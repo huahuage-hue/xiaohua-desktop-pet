@@ -11,6 +11,7 @@ mod autostart;
 mod chat;
 mod scene;
 mod screen;
+mod update;
 
 /// 托盘「开机自启」勾选项（面板切换时同步勾选状态）
 struct AutoItem(Mutex<Option<CheckMenuItem<tauri::Wry>>>);
@@ -192,14 +193,6 @@ fn peek(win: &WebviewWindow, pet: &Pet, inside: bool, pos: PhysicalPosition<i32>
         drop(t);
         slide(win, pos.x, hidden, pos.y);
     }
-}
-
-fn cursor_inside(win: &WebviewWindow) -> bool {
-    let (Ok(cur), Ok(pos), Ok(size)) = (win.cursor_position(), win.outer_position(), win.outer_size()) else {
-        return false;
-    };
-    let (rx, ry) = (cur.x - pos.x as f64, cur.y - pos.y as f64);
-    rx >= 0.0 && ry >= 0.0 && rx < size.width as f64 && ry < size.height as f64
 }
 
 /// 后台轮询：全局光标 → 网页；拖动中检测松手
@@ -495,6 +488,8 @@ fn main() {
                 .with_state_flags(StateFlags::POSITION | StateFlags::SIZE)
                 .build(),
         )
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .manage(update::Pending::default())
         .manage(pet.clone())
         .manage(AutoItem(Mutex::new(None)))
         .invoke_handler(tauri::generate_handler![
@@ -504,7 +499,8 @@ fn main() {
             chat::chat_send, chat::chat_cancel, chat::chat_key_set, chat::chat_key_info,
             scene::scene_now, scene::scene_watch,
             agent::agent_find_app, agent::agent_launch, agent::agent_open_url, agent::agent_clip_get, agent::agent_clip_set,
-            screen::screen_capture
+            screen::screen_capture,
+            update::update_check, update::update_install
         ])
         .setup(move |app| {
             let win = app.get_webview_window("main").expect("main window");
