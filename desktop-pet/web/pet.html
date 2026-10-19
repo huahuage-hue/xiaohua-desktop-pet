@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>小嬅</title>
+<style>
+  /* 桌宠窗口：整页透明，只有角色像素可见 */
+  html, body { margin: 0; height: 100%; overflow: hidden; background: transparent; user-select: none; -webkit-user-select: none; }
+  [hidden] { display: none !important; }
+  body { font: 13px/1.4 "Microsoft YaHei UI", "PingFang SC", system-ui, sans-serif; }
+  .stage { position: fixed; inset: 0; }
+  /* v0.2.0：窗口顶部 70px（占窗口高 610 的 11.5%）留给气泡，角色画布在下方 540 区域，大小与旧版一致 */
+  .stage canvas { position: absolute; left: 0; right: 0; bottom: 0; top: 11.475%; width: 100%; height: 88.525%; display: block; }
+  /* 对话卡（v0.5.0）：贴在她脚边，奶油纸 + 暖棕描边；上半身还看得见 */
+  .cc { position: absolute; left: 7px; right: 7px; bottom: 5px; z-index: 9; display: none; flex-direction: column;
+    max-height: 67%; overflow: hidden; background: rgba(251,246,234,.975); border: 1.5px solid #8B6A4E; border-radius: 16px;
+    box-shadow: 0 3px 0 rgba(139,106,78,.16), 0 10px 24px rgba(74,58,50,.24); }
+  .cc.on { display: flex; animation: ccIn .24s cubic-bezier(.3,1.4,.5,1) both; }
+  @keyframes ccIn { from { opacity: 0; transform: translateY(10px) scale(.98); } }
+  .cc-h { display: flex; align-items: center; gap: 6px; padding: 7px 7px 6px 11px; border-bottom: 1px dashed #DCC9B4;
+    background: linear-gradient(#FFFDF7, #F7EEDF); cursor: grab; user-select: none; -webkit-user-select: none; touch-action: none; }
+  .cc-h.drag { cursor: grabbing; }
+  .cc-name { font: 700 12px/1.2 "YouYuan", "幼圆", "Microsoft YaHei UI", sans-serif; color: #5A4638; letter-spacing: .04em; }
+  .cc-scene { max-width: 92px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; color: #7A6152;
+    background: #F1E6D6; border: 1px solid #E0CFB9; border-radius: 999px; padding: 1px 6px; }
+  .cc-sp { flex: 1; }
+  .cc-h button { flex: none; border: 0; border-radius: 7px; background: transparent; color: #8B6A4E; font: 14px/1 "Microsoft YaHei UI", sans-serif;
+    padding: 4px 5px; cursor: pointer; }
+  .cc-h button:hover { background: #F1E6D6; }
+  .cc-list { flex: 1; min-height: 58px; overflow-y: auto; overscroll-behavior: contain; padding: 8px 9px 4px;
+    display: flex; flex-direction: column; gap: 6px; user-select: text; -webkit-user-select: text; scrollbar-width: thin; }
+  .cc-list::-webkit-scrollbar { width: 5px; }
+  .cc-list::-webkit-scrollbar-thumb { background: #D9C7B2; border-radius: 9px; }
+  .cc-empty { color: #A38E7A; font-size: 11.5px; text-align: center; padding: 16px 4px 12px; line-height: 1.6; }
+  .cc-m { position: relative; max-width: 85%; padding: 5px 9px; border-radius: 11px; font-size: 12.5px; line-height: 1.55;
+    white-space: pre-wrap; word-break: break-word; }
+  .cc-m.u { align-self: flex-end; background: #B98A5E; color: #fff; border-bottom-right-radius: 4px; }
+  .cc-m.a { align-self: flex-start; background: #FFFDF7; color: #4A3A32; border: 1.2px solid #CBB098; border-bottom-left-radius: 4px; }
+  .cc-m .mood { font-size: 11px; margin-right: 3px; }
+  .cc-m .tm { display: block; margin-top: 2px; text-align: right; font-size: 9px; opacity: .55; }
+  .cc-m.typing { color: #8B6A4E; letter-spacing: .12em; }
+  .cc-m.typing::after { content: "…"; animation: ccDot 1.1s infinite; }
+  @keyframes ccDot { 50% { opacity: .25; } }
+  .cc-tip { display: flex; align-items: center; gap: 7px; padding: 0 10px 5px; color: #A2463E; font-size: 11px; }
+  .cc-tip button { border: 1px solid #E3BDB7; background: #FFF6F4; color: #A2463E; border-radius: 7px; padding: 2px 7px; font-size: 11px; cursor: pointer; }
+  .cc-f { display: flex; align-items: flex-end; gap: 6px; padding: 6px 7px; border-top: 1px dashed #DCC9B4; background: rgba(245,241,230,.75); }
+  .cc-f textarea { flex: 1; min-width: 0; min-height: 30px; max-height: 64px; resize: none; border: 1px solid #E4DCCB; border-radius: 9px;
+    background: #fff; color: #4A3A32; outline: 0; padding: 6px 8px; font: 12.5px/1.5 "YouYuan", "幼圆", "Microsoft YaHei UI", sans-serif;
+    user-select: text; -webkit-user-select: text; }
+  .cc-f textarea:focus { border-color: #C07A45; box-shadow: 0 0 0 2px rgba(192,122,69,.18); }
+  .cc-f button { flex: none; border: 0; border-radius: 9px; background: #8B6A4E; color: #fff; font: 12px/1 "Microsoft YaHei UI", sans-serif;
+    padding: 8px 10px; cursor: pointer; }
+  .cc-f button:hover { background: #7A5A40; }
+  .cc-f button:disabled { opacity: .5; cursor: default; }
+  .cc-quick { display: flex; gap: 5px; padding: 0 8px 7px; overflow-x: auto; scrollbar-width: none; }
+  .cc-quick::-webkit-scrollbar { display: none; }
+  .cc-quick button { flex: none; border: 1px solid #E0CFB9; background: #FBF6EA; color: #7A6152; border-radius: 999px;
+    padding: 3px 8px; font-size: 10.5px; cursor: pointer; }
+  .cc-quick button:hover { background: #F1E6D6; }
+  @media (prefers-reduced-motion: reduce) { .cc.on { animation: none; } .cc-m.typing::after { animation: none; } }
+  /* 悬停快捷按钮：只在鼠标靠近角色时出现，位置避开脸和聊天框 */
+  .quick { position: absolute; right: 8px; bottom: 150px; z-index: 7; display: flex; flex-direction: column; gap: 6px;
+    opacity: 0; transform: translateX(6px); pointer-events: none; transition: opacity .18s ease-out, transform .18s ease-out; }
+  .quick.on { opacity: 1; transform: none; pointer-events: auto; }
+  .quick button { width: 34px; height: 34px; border-radius: 50%; border: 1.5px solid #8B6A4E; background: rgba(251,246,234,.95);
+    color: #8B6A4E; display: grid; place-items: center; padding: 0; cursor: pointer;
+    box-shadow: 0 2px 0 rgba(139,106,78,.16), 0 4px 10px rgba(74,58,50,.15); }
+  .quick button:hover { background: #F1E6D6; }
+  .quick button:focus-visible { outline: 2px solid #C07A45; outline-offset: 2px; }
+  .quick svg { width: 16px; height: 16px; display: block; }
+  @media (prefers-reduced-motion: reduce) { .quick { transition: none; } }
+  #gl { cursor: grab; touch-action: none; outline: none; }
+  #fx { pointer-events: none; }
+  .msg { position: absolute; top: 6px; left: 50%; transform: translateX(-50%); margin: 0; padding: 3px 12px;
+    background: rgba(40, 36, 30, .86); color: #fff; border-radius: 999px; font-size: 12px; white-space: nowrap;
+    opacity: 0; transition: opacity .2s ease-out; pointer-events: none; }
+  .msg.show { opacity: 1; }
+  .loading { position: absolute; inset: auto 0 40% 0; text-align: center; color: #5a524a; font-size: 12px;
+    text-shadow: 0 0 3px #fff, 0 0 3px #fff; }
+
+  /* 调试（pet.html?debug 或普通浏览器打开）：棋盘格背景检查透明；圆点 = 鼠标处判定（绿 = 可点，红 = 穿透） */
+  body.debug { background: repeating-conic-gradient(#d9d9d9 0 25%, #f4f4f4 0 50%) 0 0 / 20px 20px; }
+  .dbg { position: fixed; left: 6px; bottom: 6px; padding: 3px 8px; border-radius: 4px; background: rgba(0,0,0,.72);
+    color: #fff; font: 11px/1.4 Consolas, monospace; pointer-events: none; display: none; }
+  .dot { position: fixed; width: 12px; height: 12px; margin: -6px 0 0 -6px; border-radius: 50%; border: 2px solid #fff;
+    box-shadow: 0 0 0 1px rgba(0,0,0,.4); pointer-events: none; display: none; }
+  body.debug .dbg, body.debug .dot { display: block; }
+</style>
+</head>
+<body>
+<div class="stage" id="stage">
+  <div class="loading" id="loading">正在加载小嬅…</div>
+  <canvas id="gl" role="img" aria-label="桌宠小嬅：点头、身体、云朵会有反应，按住可以拖动"></canvas>
+  <canvas id="fx" aria-hidden="true"></canvas>
+  <p class="msg" id="msg" role="status" aria-live="polite"></p>
+  <div class="quick" id="quick" role="group" aria-label="快捷操作" aria-hidden="true" inert>
+    <button type="button" data-q="chat" aria-label="和小嬅聊天" title="聊天">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5.5h16v10H9l-5 4z"/><path d="M8 9h8M8 12h5"/></svg>
+    </button>
+    <button type="button" data-q="sleep" aria-label="让她睡觉或叫醒她" title="睡觉 / 叫醒">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5A8.5 8.5 0 1 1 9.5 4a7 7 0 0 0 10.5 10.5Z"/></svg>
+    </button>
+    <button type="button" data-q="panel" aria-label="打开控制面板" title="控制面板">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 3.5v2M12 18.5v2M3.5 12h2M18.5 12h2M6 6l1.4 1.4M16.6 16.6 18 18M6 18l1.4-1.4M16.6 7.4 18 6"/></svg>
+    </button>
+  </div>
+  <section class="cc" id="cc" aria-label="和小嬅聊天">
+    <header class="cc-h">
+      <span class="cc-name">和小嬅说说话</span>
+      <span class="cc-scene" id="ccScene" hidden></span>
+      <span class="cc-sp"></span>
+      <button type="button" id="ccStop" title="让她停下" aria-label="停止回复" hidden>■</button>
+      <button type="button" id="ccClose" title="收起（Esc）" aria-label="收起对话">×</button>
+    </header>
+    <div class="cc-list" id="ccList" role="log" aria-live="polite"></div>
+    <div class="cc-tip" id="ccTip" hidden><span id="ccTipText"></span><button type="button" id="ccRetry">重发</button></div>
+    <form class="cc-f" id="ccForm" autocomplete="off">
+      <textarea id="ccIn" rows="1" maxlength="300" placeholder="和小嬅说点什么…（Enter 发送）" aria-label="和小嬅说话"></textarea>
+      <button type="submit" id="ccSend">发送</button>
+    </form>
+    <div class="cc-quick" id="ccQuick">
+      <button type="button" data-say="在忙吗？">在忙吗</button>
+      <button type="button" data-say="陪我聊两句嘛">陪我聊聊</button>
+      <button type="button" data-say="今天有点累…">今天好累</button>
+      <button type="button" data-say="夸夸我">夸夸我</button>
+    </div>
+  </section>
+</div>
+<div class="dot" id="dot"></div>
+<div class="dbg" id="dbg"></div>
+<script>
+window.XH_PET = true;
+/* v0.2.1：开机自启（带 --autostart）拉起时，不播开场招呼，免得一开机就出声 */
+window.XH_GREET_GATE = (function () {
+  var T = window.__TAURI__;
+  if (!T || !T.core) return Promise.resolve(false);
+  return Promise.race([
+    T.core.invoke('launched_autostart').then(function (v) { return !!v; }, function () { return false; }),
+    new Promise(function (r) { setTimeout(function () { r(false); }, 1500); })
+  ]);
+})();
+</script>
+<script src="assets/xiaohua_layers.js"></script>
+<script src="assets/app-core.js"></script>
+<script src="assets/app-render.js"></script>
+<script src="assets/xiaohua_wardrobe.js"></script>
+<script src="assets/app-dress.js"></script>
+<script src="assets/app-sfx.js"></script>
+<script src="assets/app-bubble.js"></script>
+<script src="assets/app-assist.js"></script>
+<script src="assets/app.js"></script>
+<script src="memory.js"></script>
+<script src="chat.js"></script>
+<script src="scene.js"></script>
+<script src="pet.js"></script>
+</body>
+</html>

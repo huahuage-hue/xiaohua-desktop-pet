@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "kind": "html",
+  "title": "desktop-pet/web/pet.html",
+  "entry": "desktop-pet/web/pet.html",
+  "renderer": "html",
+  "status": "complete",
+  "exports": [
+    "html",
+    "pdf",
+    "zip"
+  ],
+  "createdAt": "2026-10-17T05:02:02.207Z",
+  "updatedAt": "2026-10-17T05:02:02.207Z",
+  "metadata": {
+    "inferred": true,
+    "reconciled": true
+  }
+}

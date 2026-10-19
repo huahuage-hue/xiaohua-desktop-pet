@@ -1,0 +1,37 @@
+小嬅桌宠 · 源码打包说明
+版本 v0.2.1    打包日期 2026-10-18
+
+一、目录说明
+  desktop-pet\      桌宠本体（Tauri 2 + Rust + 网页前端）
+                    src-tauri\src\main.rs、autostart.rs 是主程序和开机自启
+                    web\ 是界面：pet.html 桌宠窗、panel.html 控制面板
+                    build.ps1 一键构建脚本，README.md 详细说明
+  assets\           角色渲染器、分层图集和共用脚本（xiaohua_layers.js 等）
+  tools\            分层图生成、对齐、抠图等设计工具脚本
+  psd\              角色源文件：xiaohua_layers.psd、layers\、raw\、layers.json
+  docs\             角色设计和 Live2D 绑定方案
+  index.html        浏览器里的角色预览页（引用 assets\）
+  dist\小嬅桌宠.exe              免安装版，可直接运行
+  dist\安装包\小嬅桌宠_0.2.1_x64-setup.exe   NSIS 安装包
+  使用说明.txt      给使用者看的说明
+
+二、在新电脑上继续开发
+  1. 安装 Rust（rustup）、Visual Studio 生成工具 2022（勾选“使用 C++ 的桌面开发”）、
+     Node 不需要，构建由 cargo tauri 完成。
+  2. cargo install tauri-cli --version "^2"
+  3. 进入 desktop-pet 目录：powershell -ExecutionPolicy Bypass -File build.ps1
+     - 加 -Dev 参数可开发模式运行（改网页后刷新即可）
+     - 默认构建后复制到 D:\小嬅桌宠，可用 -OutDir 改路径
+  build.ps1 会自动把 ..\assets 里的最新渲染器同步到 desktop-pet\web\assets，
+  所以 desktop-pet 和 assets 必须保持在同一层目录（本包已按此结构放好）。
+
+三、本包没有包含的内容
+  - desktop-pet\src-tauri\target\    编译产物，约 1.7GB，到新电脑重新编译即可
+  - 视频相关文件（promo\、分镜文档、成片）
+  - Open Design 的内部目录（.od-frames、.od-skills、.file-versions）
+  - 旧版网页原型 legacy\、截图等临时素材
+
+四、注意
+  - 安装版卸载时不会自动清除开机自启注册表项。如果开过开机自启，
+    请先在控制面板里关掉再卸载。
+  - 角色设计 © 樺樺嗝，对外发布前请先获得授权。

@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "kind": "html",
+  "title": "desktop-pet/web/panel.html",
+  "entry": "desktop-pet/web/panel.html",
+  "renderer": "html",
+  "status": "complete",
+  "exports": [
+    "html",
+    "pdf",
+    "zip"
+  ],
+  "createdAt": "2026-10-17T06:28:34.253Z",
+  "updatedAt": "2026-10-17T06:28:34.253Z",
+  "metadata": {
+    "inferred": true,
+    "reconciled": true
+  }
+}

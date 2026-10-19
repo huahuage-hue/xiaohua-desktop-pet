@@ -1,0 +1,11 @@
+# 构建产物 / 备份 / 旧版
+desktop-pet/src-tauri/target/
+desktop-pet/web/assets/
+.backups/
+dist/
+*.zip
+
+# PSD 源文件很大，只跟踪说明和图层表
+psd/*
+!psd/图层说明.md
+!psd/layers.json

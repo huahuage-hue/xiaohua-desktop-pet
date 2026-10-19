@@ -1,0 +1,859 @@
+﻿<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>小嬅 · 控制面板</title>
+<style>
+  :root {
+    --paper: #F5F1E6; --card: #FFFDF7; --ink: #3B342D; --ink-2: #7A6F63; --line: #E4DCCB;
+    --accent: #B98A5E; --accent-ink: #fff; --accent-soft: #F1E6D6; --focus: #C07A45;
+    --bub: #FBF6EA; --bub-line: #8B6A4E; --bub-ink: #4A3A32;
+    --r: 10px; --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 20px;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--paper); color: var(--ink); height: 100%; }
+  body { font: 13px/1.5 "Microsoft YaHei UI", "PingFang SC", system-ui, sans-serif; user-select: none; display: flex; flex-direction: column; }
+  header { display: flex; align-items: center; gap: var(--s3); padding: var(--s4) var(--s4) var(--s3); }
+  header img { width: 44px; height: 44px; border-radius: 50%; box-shadow: 0 0 0 2px var(--card), 0 0 0 3px var(--line); }
+  header h1 { font-size: 16px; margin: 0; font-weight: 700; }
+  header p { margin: 0; color: var(--ink-2); font-size: 12px; }
+  /* 标签页 */
+  nav { display: flex; gap: 2px; margin: 0 var(--s4); border-bottom: 1px solid var(--line); }
+  nav button { flex: 1; border: 0; border-radius: 8px 8px 0 0; background: transparent; padding: 7px 0 6px; color: var(--ink-2); position: relative; }
+  nav button:hover { background: var(--accent-soft); border: 0; }
+  nav button[aria-selected="true"] { color: var(--ink); font-weight: 700; background: var(--card); box-shadow: 0 0 0 1px var(--line); }
+  nav button[aria-selected="true"]::after { content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 2px; background: var(--card); }
+  main { flex: 1; overflow: auto; padding: var(--s3) var(--s4) var(--s2); }
+  [role=tabpanel][hidden] { display: none; }
+  section { background: var(--card); border: 1px solid var(--line); border-radius: var(--r); padding: var(--s3) var(--s4); margin-bottom: var(--s3); }
+  h2 { font-size: 12px; font-weight: 700; color: var(--ink-2); margin: 0 0 var(--s2); letter-spacing: .04em; }
+  .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+  .outfits { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .outfit { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 5px; background: var(--paper); }
+  .outfit img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 7px; background: #F1E8D8; display: block; }
+  .outfit b { font-size: 11px; font-weight: 600; line-height: 1.2; text-align: center; }
+  .outfit[aria-pressed="true"] { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); background: var(--card); }
+  .outfit small { font-size: 10px; color: var(--ink-2); line-height: 1.2; text-align: center; }
+  .outfit.now small { color: var(--accent); font-weight: 600; }
+  h3.grp { font-size: 11px; font-weight: 600; color: var(--ink-2); margin: var(--s3) 0 6px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 5px; flex: 1; justify-content: flex-end; }
+  .chip { font-size: 11px; padding: 4px 9px; border-radius: 999px; line-height: 1.2; }
+  .chip[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button { font: inherit; color: var(--ink); background: var(--paper); border: 1px solid var(--line); border-radius: 8px;
+    padding: 6px 4px; cursor: pointer; transition: background .15s, border-color .15s; }
+  button:hover { background: var(--accent-soft); border-color: var(--accent); }
+  button:active { transform: translateY(1px); }
+  button:disabled { opacity: .45; cursor: default; }
+  button.pri { background: var(--accent); color: #fff; border-color: var(--accent); }
+  button.pri:hover { background: #A77A50; }
+  button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+  .row { display: flex; align-items: center; justify-content: space-between; gap: var(--s3); min-height: 34px; padding: 3px 0; }
+  .row + .row { border-top: 1px dashed var(--line); }
+  .row label, .row > span { flex: 1; cursor: pointer; }
+  .row small { color: var(--ink-2); display: block; font-size: 11px; line-height: 1.3; }
+  .row.sub { padding-left: 14px; }
+  .row.dim { opacity: .45; pointer-events: none; }
+  /* 开关 */
+  .sw { appearance: none; -webkit-appearance: none; width: 36px; height: 20px; border-radius: 999px; background: #D8CFBF; position: relative; cursor: pointer; transition: background .15s; flex: none; margin: 0; }
+  .sw::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.2); transition: transform .15s; }
+  .sw:checked { background: var(--accent); }
+  .sw:checked::after { transform: translateX(16px); }
+  /* 分段选择 */
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; flex: none; }
+  .seg button { border: 0; border-radius: 0; padding: 4px 9px; background: var(--card); }
+  .seg button + button { border-left: 1px solid var(--line); }
+  .seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
+  input[type=range] { width: 130px; accent-color: var(--accent); flex: none; }
+  input[type=range]:disabled, input.sw:disabled { opacity: .4; }
+  output { width: 40px; text-align: right; color: var(--ink-2); font-variant-numeric: tabular-nums; flex: none; }
+  input.t, select { font: inherit; color: var(--ink); background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 5px 8px; min-width: 0; user-select: text; }
+  select { padding: 4px 6px; }
+  .field { display: grid; grid-template-columns: 64px 1fr; align-items: center; gap: 6px 8px; padding: 4px 0; }
+  .field > span { color: var(--ink-2); font-size: 12px; }
+  .inline { display: flex; gap: 6px; min-width: 0; }
+  .inline .t { flex: 1; }
+  .hours { display: inline-flex; align-items: center; gap: 4px; flex: none; color: var(--ink-2); }
+  .hours select { width: 58px; }
+  .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .quit { background: #fff; color: #A2463E; border-color: #E8C9C4; }
+  .quit:hover { background: #FBEDEB; border-color: #A2463E; }
+  .note { color: var(--ink-2); font-size: 11px; line-height: 1.5; margin: 6px 0 0; }
+  .ok { color: #4D7A4A; } .bad { color: #A2463E; }
+  /* 城市搜索结果 */
+  .cities { list-style: none; margin: 6px 0 0; padding: 0; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .cities:empty { display: none; }
+  .cities li button { width: 100%; text-align: left; border: 0; border-radius: 0; background: #fff; padding: 6px 10px; }
+  .cities li + li button { border-top: 1px solid var(--line); }
+  .cities li button small { color: var(--ink-2); margin-left: 6px; }
+  .city-now { font-weight: 700; }
+  /* 聊天记录 */
+  .log { display: flex; flex-direction: column; gap: 6px; max-height: 260px; overflow: auto; padding: 2px; user-select: text; }
+  .log:empty::before { content: "还没有聊过天。双击小嬅，或在下面输入。"; color: var(--ink-2); font-size: 12px; text-align: center; padding: 18px 0; }
+  .msg { max-width: 82%; padding: 5px 10px; border-radius: 12px; line-height: 1.55; white-space: pre-wrap; word-break: break-word; }
+  .msg.u { align-self: flex-end; background: var(--accent); color: #fff; border-bottom-right-radius: 4px; }
+  .msg.a { align-self: flex-start; background: var(--bub); color: var(--bub-ink); border: 1.5px solid var(--bub-line); border-bottom-left-radius: 4px; }
+  .msg.a i { font-style: normal; font-size: 10px; color: #A08770; margin-right: 4px; }
+  .say { display: flex; gap: 6px; margin-top: 8px; }
+  .say .t { flex: 1; }
+  .log-tools { display: flex; gap: 5px; margin-bottom: 6px; }
+  .log-tools .t { flex: 1; }
+  .log-tools button { flex: none; padding: 5px 8px; font-size: 11px; }
+  .log-day { align-self: center; color: var(--ink-2); font-size: 10px; margin: 5px 0 0; letter-spacing: .05em; }
+  .entry { display: flex; align-items: flex-end; gap: 3px; }
+  .entry.u { justify-content: flex-end; }
+  .entry .del { flex: none; border: 0; background: transparent; color: var(--ink-2); padding: 2px 3px; font-size: 11px; opacity: 0; }
+  .entry:hover .del, .entry .del:focus-visible { opacity: 1; }
+  .log-empty { color: var(--ink-2); font-size: 12px; text-align: center; padding: 16px 0; }
+  /* 记忆 v2 */
+  .mem-prof { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 8px; margin-bottom: 8px; }
+  .mem-prof label { display: flex; flex-direction: column; gap: 2px; font-size: 10px; color: var(--ink-2); }
+  .mem-prof label.wide { grid-column: span 2; }
+  .mem-prof input { font-size: 12px; padding: 4px 6px; }
+  .mem-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin: 6px 0; }
+  .mem-head .seg button { padding: 3px 7px; font-size: 11px; }
+  .mem-count { color: var(--ink-2); font-size: 10px; }
+  .mem-list { display: flex; flex-direction: column; gap: 5px; max-height: 230px; overflow: auto; }
+  .mem-item { display: flex; align-items: center; gap: 3px; }
+  .mem-item .t { flex: 1; font-size: 12px; padding: 4px 6px; }
+  .mem-item button { flex: none; padding: 3px 5px; font-size: 10px; }
+  .mem-item .done { color: var(--accent); font-weight: 700; }
+  .mem-item .off { opacity: .5; text-decoration: line-through; }
+  .mem-add { display: flex; gap: 4px; margin-top: 6px; }
+  .mem-add .t { flex: 1; font-size: 12px; }
+  .mem-add select { width: 60px; font-size: 11px; }
+  .mem-add button { flex: none; padding: 4px 8px; font-size: 11px; }
+  footer { color: var(--ink-2); font-size: 11px; text-align: center; padding: 4px 0 var(--s3); }
+</style>
+</head>
+<body>
+<header>
+  <img src="icon.png" alt="">
+  <div><h1>小嬅 · 控制面板</h1><p>右键小嬅可随时打开这里</p></div>
+</header>
+
+<nav role="tablist" aria-label="控制面板分栏">
+<button role="tab" id="t-play" aria-controls="p-play" aria-selected="true">互动</button>
+<button role="tab" id="t-dress" aria-controls="p-dress" aria-selected="false">换装</button>
+<button role="tab" id="t-assist" aria-controls="p-assist" aria-selected="false">小助手</button>
+  <button role="tab" id="t-chat" aria-controls="p-chat" aria-selected="false">对话</button>
+  <button role="tab" id="t-set" aria-controls="p-set" aria-selected="false">设置</button>
+</nav>
+
+<main>
+<!-- ===== 互动 ===== -->
+<div role="tabpanel" id="p-play" aria-labelledby="t-play">
+  <section aria-labelledby="h-motion">
+    <h2 id="h-motion">动作</h2>
+    <div class="grid">
+      <button data-play="greet">打招呼</button><button data-play="wave">挥手</button><button data-play="nod">点头</button><button data-play="tilt">歪头</button>
+      <button data-play="look">张望</button><button data-play="hop">小跳</button><button data-play="angry">生气</button><button data-play="shy">害羞</button>
+      <button data-play="yawn">哈欠</button><button data-play="hum">哼歌</button><button data-play="daze">发呆</button><button data-play="tapCloud">看云朵</button>
+      <button data-play="happy">开心</button><button data-play="think">思考</button><button data-play="dizzy">头晕</button><button id="sleep">睡觉/叫醒</button>
+    </div>
+  </section>
+  <section aria-labelledby="h-ask">
+    <h2 id="h-ask">问问她</h2>
+    <div class="actions">
+      <button data-cmd="time">现在几点？</button>
+      <button data-cmd="weather">今天天气？</button>
+      <button data-cmd="chat" class="pri" style="grid-column: span 2">和她聊天（双击小嬅也可以）</button>
+    </div>
+  </section>
+</div>
+
+<!-- ===== 换装 ===== -->
+<div role="tabpanel" id="p-dress" aria-labelledby="t-dress" hidden>
+  <section aria-labelledby="h-outfit">
+    <h2 id="h-outfit">今天的衣服</h2>
+    <div class="row">
+      <label for="autoDress">跟随时间换装<small>早上晨露、白天原版、傍晚焦糖、夜里月白；周五六晚上换星绣</small></label>
+      <input class="sw" type="checkbox" id="autoDress" data-k="autoDress">
+    </div>
+    <div class="row sub" data-dep="autoDress">
+      <label for="festival">节日自动换装<small>到节日那几天优先穿节日装（春节、情人节 / 七夕、端午、中秋、万圣、圣诞）</small></label>
+      <input class="sw" type="checkbox" id="festival" data-k="festival">
+    </div>
+    <h3 class="grp">日常</h3>
+    <div class="outfits" role="group" aria-label="日常套装">
+      <button class="outfit" type="button" data-outfit="classic"><img src="assets/wardrobe/thumb_classic.png" alt=""><b>原版桦叶</b></button>
+      <button class="outfit" type="button" data-outfit="cream"><img src="assets/wardrobe/thumb_cream.png" alt=""><b>晨露针织</b></button>
+      <button class="outfit" type="button" data-outfit="plaid"><img src="assets/wardrobe/thumb_plaid.png" alt=""><b>焦糖格纹</b></button>
+      <button class="outfit" type="button" data-outfit="moon"><img src="assets/wardrobe/thumb_moon.png" alt=""><b>月白星月</b></button>
+      <button class="outfit" type="button" data-outfit="star"><img src="assets/wardrobe/thumb_star.png" alt=""><b>星绣奶油</b></button>
+      <button class="outfit" type="button" id="dressReset"><b>恢复原版</b><small>清空配饰</small></button>
+    </div>
+    <h3 class="grp">节日</h3>
+    <div class="outfits" role="group" aria-label="节日套装">
+      <button class="outfit" type="button" data-outfit="spring" data-fest="spring"><img src="assets/wardrobe/thumb_spring.png" alt=""><b>锦鲤红·春节</b><small></small></button>
+      <button class="outfit" type="button" data-outfit="valentine" data-fest="valentine"><img src="assets/wardrobe/thumb_valentine.png" alt=""><b>莓果·情人节</b><small></small></button>
+      <button class="outfit" type="button" data-outfit="dragon" data-fest="dragon"><img src="assets/wardrobe/thumb_dragon.png" alt=""><b>青艾·端午</b><small></small></button>
+      <button class="outfit" type="button" data-outfit="midautumn" data-fest="midautumn"><img src="assets/wardrobe/thumb_midautumn.png" alt=""><b>玉兔·中秋</b><small></small></button>
+      <button class="outfit" type="button" data-outfit="halloween" data-fest="halloween"><img src="assets/wardrobe/thumb_halloween.png" alt=""><b>南瓜·万圣</b><small></small></button>
+      <button class="outfit" type="button" data-outfit="xmas" data-fest="xmas"><img src="assets/wardrobe/thumb_xmas.png" alt=""><b>冬青·圣诞</b><small></small></button>
+    </div>
+    <p class="note" id="dressNote" role="status" aria-live="polite">自动换装开着时，手动选衣服会自动切到手动模式。</p>
+  </section>
+
+  <section aria-labelledby="h-acc">
+    <h2 id="h-acc">配饰</h2>
+    <div class="row">
+      <span>头顶<small>和大蝴蝶结二选一</small></span>
+      <div class="chips" data-slot="head">
+        <button class="chip" type="button" data-id="">不戴</button>
+        <button class="chip" type="button" data-id="bunny">玉兔耳朵</button>
+        <button class="chip" type="button" data-id="witch">小巫师帽</button>
+        <button class="chip" type="button" data-id="antler">冬青鹿角</button>
+      </div>
+    </div>
+    <div class="row">
+      <span>头发</span>
+      <div class="chips" data-slot="hair">
+        <button class="chip" type="button" data-id="">不戴</button>
+        <button class="chip" type="button" data-id="flower">小花夹</button>
+        <button class="chip" type="button" data-id="ribbon">大蝴蝶结</button>
+        <button class="chip" type="button" data-id="lantern">灯笼发夹</button>
+        <button class="chip" type="button" data-id="heart">爱心发夹</button>
+      </div>
+    </div>
+    <div class="row">
+      <span>脖子</span>
+      <div class="chips" data-slot="neck">
+        <button class="chip" type="button" data-id="">不戴</button>
+        <button class="chip" type="button" data-id="scarf">针织围巾</button>
+        <button class="chip" type="button" data-id="fur">毛绒领圈</button>
+      </div>
+    </div>
+    <div class="row">
+      <span>肩上</span>
+      <div class="chips" data-slot="bag">
+        <button class="chip" type="button" data-id="">不背</button>
+        <button class="chip" type="button" data-id="bag">桦果挎包</button>
+      </div>
+    </div>
+    <div class="row">
+      <span>挂坠</span>
+      <div class="chips" data-slot="charm">
+        <button class="chip" type="button" data-id="">不戴</button>
+        <button class="chip" type="button" data-id="charm">星星挂坠</button>
+        <button class="chip" type="button" data-id="knot">中国结</button>
+        <button class="chip" type="button" data-id="sachet">艾草香囊</button>
+        <button class="chip" type="button" data-id="bell">小铃铛</button>
+      </div>
+    </div>
+    <div class="row">
+      <span>胸口</span>
+      <div class="chips" data-slot="chest">
+        <button class="chip" type="button" data-id="">不戴</button>
+        <button class="chip" type="button" data-id="brooch">云朵胸针</button>
+      </div>
+    </div>
+    <div class="row">
+      <span>脸上</span>
+      <div class="chips" data-slot="face">
+        <button class="chip" type="button" data-id="">不戴</button>
+        <button class="chip" type="button" data-id="glasses">圆框眼镜</button>
+      </div>
+    </div>
+  </section>
+</div>
+
+<!-- ===== 小助手 ===== -->
+<div role="tabpanel" id="p-assist" aria-labelledby="t-assist" hidden>
+  <section aria-labelledby="h-chime">
+    <h2 id="h-chime">报时</h2>
+    <div class="row"><label for="chime">整点报时<small>每个整点说一句，早中晚台词不一样</small></label><input class="sw" type="checkbox" id="chime" data-k="chime"></div>
+    <div class="row sub" data-dep="chime">
+      <span>免打扰时段<small>这段时间不报时、不播天气</small></span>
+      <span class="hours"><select id="qf" aria-label="免打扰开始"></select>–<select id="qt" aria-label="免打扰结束"></select></span>
+    </div>
+    <div class="row"><label for="askTap">摸头时顺口说<small>摸她的头，偶尔告诉你时间或天气</small></label><input class="sw" type="checkbox" id="askTap" data-k="askTap"></div>
+    <div class="row"><label for="bedtime">深夜劝睡<small>零点到五点还在用电脑，每晚提醒一次</small></label><input class="sw" type="checkbox" id="bedtime" data-k="bedtime"></div>
+  </section>
+
+  <section aria-labelledby="h-wx">
+    <h2 id="h-wx">天气</h2>
+    <div class="row"><label for="weather">天气播报<small>每天第一次启动说一次，之后每 3 小时；下雨降温会提醒</small></label><input class="sw" type="checkbox" id="weather" data-k="weather"></div>
+    <div class="field">
+      <span>城市</span>
+      <form class="inline" id="cityF" autocomplete="off">
+        <input class="t" id="cityQ" placeholder="输入城市名，如 杭州" aria-label="搜索城市">
+        <button type="submit">搜索</button>
+      </form>
+    </div>
+    <ul class="cities" id="cities"></ul>
+    <p class="note" id="cityNow"></p>
+  </section>
+
+  <section aria-labelledby="h-rm">
+    <h2 id="h-rm">提醒</h2>
+    <div class="row"><label for="remind">喝水 / 休息提醒<small>只在你用电脑时计时，离开 5 分钟会重新算</small></label><input class="sw" type="checkbox" id="remind" data-k="remind"></div>
+    <div class="row sub" data-dep="remind">
+      <span>间隔</span>
+      <div class="seg" role="group" aria-label="提醒间隔" id="remindMin">
+        <button data-v="30">30 分</button><button data-v="45">45</button><button data-v="60">60</button><button data-v="90">90</button>
+      </div>
+    </div>
+  </section>
+</div>
+
+<!-- ===== 对话 ===== -->
+<div role="tabpanel" id="p-chat" aria-labelledby="t-chat" hidden>
+  <section aria-labelledby="h-ai">
+    <h2 id="h-ai">AI 对话</h2>
+    <div class="row"><label for="chatOn">开启对话<small>接入大模型后，双击小嬅就能和她聊天</small></label><input class="sw" type="checkbox" id="chatOn" data-k="chatOn"></div>
+    <div id="aiCfg">
+      <div class="field"><span>称呼</span><input class="t" id="nickname" maxlength="20" placeholder="希望她怎么叫你" spellcheck="false"></div>
+      <div class="field"><span>服务商</span><select id="provider" aria-label="服务商"></select></div>
+      <div class="field" id="baseRow"><span>接口地址</span><input class="t" id="base" placeholder="https://…/v1" spellcheck="false"></div>
+      <div class="field"><span>模型</span><input class="t" id="model" spellcheck="false"></div>
+      <div class="field" id="keyRow"><span>密钥</span>
+        <form class="inline" id="keyF" autocomplete="off">
+          <input class="t" id="key" type="password" placeholder="sk-…" spellcheck="false" aria-label="API 密钥">
+          <button type="submit">保存</button>
+        </form>
+      </div>
+      <p class="note" id="keyNote"></p>
+      <div class="row">
+        <span>说话风格</span>
+        <div class="seg" role="group" aria-label="说话风格" id="persona"><button data-v="self">小嬅本色</button><button data-v="plain">简洁助手</button></div>
+      </div>
+      <div class="row">
+        <span>回复长度</span>
+        <div class="seg" role="group" aria-label="回复长度" id="len"><button data-v="s">短</button><button data-v="m">中</button></div>
+      </div>
+      <div class="row">
+        <span>主动搭话<small>闲下来会自己找你；免打扰时段、睡觉时不会打扰</small></span>
+        <div class="seg" role="group" aria-label="主动搭话频率" id="proactive">
+          <button data-v="0">关</button><button data-v="1">低</button><button data-v="2">中</button><button data-v="3">高</button>
+        </div>
+      </div>
+      <div class="actions" style="margin-top: 6px"><button id="test">测试连接</button><button id="clear">清空记忆与记录</button></div>
+      <p class="note" id="testNote" role="status"></p>
+      <div class="actions" style="margin-top: 6px"><button id="guide" style="grid-column: span 2">重看新手引导</button></div>
+    </div>
+  </section>
+  <section aria-labelledby="h-scene">
+    <h2 id="h-scene">桌面感知<small style="font-weight:400; margin-left:6px">只在本机判断，标题默认不告诉她</small></h2>
+    <div class="row"><label for="sceneOn">开启场景感知<small>读取前台窗口的进程名和标题，判断你在写代码 / 看视频 / 开会</small></label><input class="sw" type="checkbox" id="sceneOn" data-k="sceneOn"></div>
+    <div class="row sub" data-dep="sceneOn"><label for="sceneTitle">把窗口标题也告诉她<small>默认关闭；关闭时只给软件类别，不给标题</small></label><input class="sw" type="checkbox" id="sceneTitle" data-k="sceneTitle"></div>
+    <div class="row sub" data-dep="sceneOn"><label for="quietFull">全屏时保持安静<small>看视频、玩游戏、投屏时不主动搭话</small></label><input class="sw" type="checkbox" id="quietFull" data-k="quietFull"></div>
+    <div class="row sub" data-dep="sceneOn"><label for="hideFull">全屏时自动躲起来<small>退出全屏后自动回来</small></label><input class="sw" type="checkbox" id="hideFull" data-k="hideFull"></div>
+    <div class="field" data-dep="sceneOn"><span>黑名单</span><input class="t" id="sceneBlock" placeholder="进程名片段，逗号分隔" spellcheck="false"></div>
+    <p class="note" id="sceneNow" role="status" aria-live="polite">当前：等待读取前台窗口…</p>
+    <p class="note">会议、游戏、密码 / 银行类应用和全屏时会自动安静；不截图、不读内容、不写盘。</p>
+  </section>
+  <section aria-labelledby="h-mem">
+    <h2 id="h-mem">记忆<small style="font-weight:400; margin-left:6px">分条整理，只存在本机</small></h2>
+    <div class="mem-prof" id="memProf"></div>
+    <div class="mem-head">
+      <div class="seg" role="group" aria-label="记忆分类" id="memCat">
+        <button data-v="facts">事实</button><button data-v="events">事件</button><button data-v="promises">约定</button>
+      </div>
+      <span class="mem-count" id="memCount"></span>
+    </div>
+    <div class="mem-list" id="memList"></div>
+    <form class="mem-add" id="memAdd" autocomplete="off">
+      <input class="t" id="memNew" maxlength="120" placeholder="添加一条记忆…" aria-label="新记忆">
+      <select id="memKind" aria-label="记忆分类"><option value="facts">事实</option><option value="events">事件</option><option value="promises">约定</option></select>
+      <button type="submit">添加</button>
+    </form>
+    <div class="actions" style="margin-top: 6px"><button id="memExport">导出记忆</button><button id="memClear" class="quit">清空记忆</button></div>
+    <p class="note">她说「忘掉 咖啡」这样就会删掉对应条目；敏感信息不会自动记录。</p>
+  </section>
+  <section aria-labelledby="h-log">
+    <h2 id="h-log">聊天记录<small style="font-weight:400; margin-left:6px">最近 200 条，按天分组</small></h2>
+    <div class="log-tools">
+      <input class="t" id="logQ" placeholder="搜索聊天内容…" aria-label="搜索聊天">
+      <button type="button" id="logExport">导出</button>
+      <button type="button" id="logImport">导入</button>
+      <input type="file" id="logFile" accept="application/json,.json" hidden>
+    </div>
+    <div class="log" id="log" aria-live="polite"></div>
+    <form class="say" id="sayF" autocomplete="off">
+      <input class="t" id="sayIn" maxlength="300" placeholder="在这里也能和她说话…" aria-label="发消息">
+      <button type="submit" class="pri">发送</button>
+    </form>
+  </section>
+</div>
+
+<!-- ===== 设置 ===== -->
+<div role="tabpanel" id="p-set" aria-labelledby="t-set" hidden>
+  <section aria-labelledby="h-idle">
+    <h2 id="h-idle">待机</h2>
+    <div class="row">
+      <span>随机动作<small>空闲时自己做小动作和正式动作</small></span>
+      <div class="seg" role="group" aria-label="随机动作频率" id="freq">
+        <button data-v="0">关</button><button data-v="1">低</button><button data-v="2">中</button><button data-v="3">高</button>
+      </div>
+    </div>
+    <div class="row"><label for="react">鼠标互动<small>靠近打招呼、停留歪头、乱晃生气</small></label><input class="sw" type="checkbox" id="react" data-k="react"></div>
+    <div class="row"><label for="bubbles">动作台词<small>做动作时说的小台词（报时、对话不受影响）</small></label><input class="sw" type="checkbox" id="bubbles" data-k="bubbles"></div>
+    <div class="row"><label for="follow">视线跟随鼠标</label><input class="sw" type="checkbox" id="follow" data-k="follow"></div>
+  </section>
+
+  <section aria-labelledby="h-sound">
+    <h2 id="h-sound">声音</h2>
+    <div class="row"><label for="sfx">动作音效<small>轻柔的合成音，待机时自己动会更小声</small></label><input class="sw" type="checkbox" id="sfx" data-k="sfx"></div>
+    <div class="row"><label for="vol">音量</label><input type="range" id="vol" min="0" max="100" step="5"><output for="vol" id="volOut">25%</output></div>
+    <div class="row"><label for="voice">小女孩声音<small>“哎~”“嗯？”“哼哼”这类小声音；关掉只留叮叮声</small></label><input class="sw" type="checkbox" id="voice" data-k="voice"></div>
+    <div class="actions" style="margin-top: 6px"><button id="try">试听</button></div>
+  </section>
+
+  <section aria-labelledby="h-look">
+    <h2 id="h-look">外观</h2>
+    <div class="row"><label for="scale">大小</label><input type="range" id="scale" min="50" max="150" step="5"><output for="scale" id="scaleOut">100%</output></div>
+    <div class="row"><label for="top">始终置顶</label><input class="sw" type="checkbox" id="top" data-k="top"></div>
+    <div class="row"><label for="props">云朵和星星</label><input class="sw" type="checkbox" id="props" data-k="props"></div>
+    <div class="row">
+      <span>拖动摇摆<small>拎起来时像挂件一样晃，甩太猛会头晕</small></span>
+      <div class="seg" role="group" aria-label="拖动摇摆幅度" id="swing">
+        <button data-v="0">关</button><button data-v="1">轻</button><button data-v="2">正常</button><button data-v="3">夸张</button>
+      </div>
+    </div>
+  </section>
+
+  <section aria-labelledby="h-win">
+    <h2 id="h-win">窗口</h2>
+    <div class="row"><label for="autostart">开机自动启动<small>登录 Windows 后自动出现在桌面上（不会出声打招呼）</small></label><input class="sw" type="checkbox" id="autostart"></div>
+    <p class="note" id="autoNote" role="status" aria-live="polite" hidden></p>
+    <div class="actions" style="margin-top:8px">
+      <button id="home">移回右下角</button>
+      <button id="hide">隐藏小嬅</button>
+      <button id="quit" class="quit" style="grid-column: span 2">退出小嬅</button>
+    </div>
+  </section>
+</div>
+</main>
+<footer>设置会自动保存 · 托盘图标也能打开这里 · v0.5.0</footer>
+
+<script src="assets/app-assist.js"></script>
+<script src="assets/xiaohua_wardrobe.js"></script>
+<script src="assets/app-dress.js"></script>
+<script src="memory.js"></script>
+<script src="chat.js"></script>
+<script src="scene.js"></script>
+<script>
+(function () {
+  'use strict';
+  const T = window.__TAURI__, invoke = T ? T.core.invoke : null;
+  const $ = (id) => document.getElementById(id);
+  const DEF = { idleFreq: 2, bubbles: true, follow: true, props: true, react: true, scale: 100, top: true, sfx: true, vol: 25, voice: true, swing: 2, outfit: 'classic', acc: {}, autoDress: true, festival: true, ...XH.DEF_ASSIST, ...XH.DEF_SCENE, ...XH.chat.DEF_CHAT };
+  /* sv：设置版本。v0.1.3 起默认音量 40 → 25；v0.3.0 去掉漫游，加换装；v0.5.0 加场景感知 */
+  const load = () => {
+    let s; try { s = JSON.parse(localStorage.getItem('xh-pet') || '{}'); } catch (_) { s = {}; }
+    if (!s.sv) { if (s.vol === 40) s.vol = 25; s.sv = 2; }
+    if (s.sv < 3) { if (s.roam == null) s.roam = true; s.sv = 3; }
+    if (s.sv < 4) { if (s.outfit == null) s.outfit = 'classic'; if (!s.acc) s.acc = {}; if (s.autoDress == null) s.autoDress = true; delete s.roam; s.sv = 4; }
+    if (s.sv < 5) { if (s.festival == null) s.festival = true; s.sv = 5; }
+    if (s.sv < 6) { if (s.sceneOn == null) s.sceneOn = true; if (s.sceneTitle == null) s.sceneTitle = false; if (s.quietFull == null) s.quietFull = true; if (s.hideFull == null) s.hideFull = false; if (s.sceneBlock == null) s.sceneBlock = ''; s.sv = 6; }
+    return { ...DEF, ...s };
+  };
+  let S = load();
+  var memCat = 'facts';
+  var chatUiReady = false;
+  /* 发给桌宠窗口：Tauri 用事件；浏览器调试时用 opener.postMessage */
+  const send = (c) => {
+    if (T) T.event.emitTo('main', 'pet://cmd', c).catch(() => {});
+    else if (window.opener) window.opener.postMessage(c, '*');
+  };
+  const save = () => { localStorage.setItem('xh-pet', JSON.stringify(S)); send({ type: 'settings' }); paintDeps(); paintDress(); };
+  const call = (cmd, args) => invoke ? invoke(cmd, args).catch(() => {}) : Promise.resolve();
+
+  /* ---------- 标签页（记住上次打开的） ---------- */
+  const tabs = [...document.querySelectorAll('[role=tab]')];
+  const showTab = (t) => {
+    tabs.forEach((b) => { const on = b === t; b.setAttribute('aria-selected', String(on)); b.tabIndex = on ? 0 : -1; $(b.getAttribute('aria-controls')).hidden = !on; });
+    try { sessionStorage.setItem('xh-tab', t.id); } catch (_) { /* 无所谓 */ }
+    if (t.id === 't-chat' && chatUiReady) { paintLog(); paintMem(); }
+  };
+  tabs.forEach((b, i) => {
+    b.addEventListener('click', () => showTab(b));
+    b.addEventListener('keydown', (e) => { const d = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0; if (d) { const n = tabs[(i + d + tabs.length) % tabs.length]; n.focus(); showTab(n); } });
+  });
+  showTab($(sessionStorage.getItem('xh-tab') || 't-play') || tabs[0]);
+
+  /* ---------- 通用控件 ---------- */
+  document.querySelectorAll('[data-play]').forEach((b) => b.addEventListener('click', () => send({ type: 'play', name: b.dataset.play })));
+  document.querySelectorAll('[data-cmd]').forEach((b) => b.addEventListener('click', () => send({ type: b.dataset.cmd })));
+  const seg = (id, key, num) => {
+    const el = $(id);
+    const paint = () => el.querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String((num ? +b.dataset.v : b.dataset.v) === S[key])));
+    el.addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b) return; S[key] = num ? +b.dataset.v : b.dataset.v; paint(); save(); });
+    paint();
+  };
+  seg('freq', 'idleFreq', true); seg('swing', 'swing', true); seg('remindMin', 'remindMin', true); seg('persona', 'persona'); seg('len', 'len'); seg('proactive', 'proactive', true);
+
+  document.querySelectorAll('input[data-k]').forEach((el) => {
+    el.checked = !!S[el.dataset.k];
+    el.addEventListener('change', () => {
+      S[el.dataset.k] = el.checked; save();
+      if (el.dataset.k === 'top') call('set_top', { on: el.checked });
+      if (el.dataset.k === 'weather' && el.checked && !S.city) $('cityQ').focus();
+    });
+  });
+  /* 依赖开关：子项在总开关关闭时变灰 */
+  let lastScene = null;
+  const paintSceneNow = () => {
+    const el = $('sceneNow'); if (!el) return;
+    if (!S.sceneOn) { el.textContent = '当前：已关闭'; return; }
+    el.textContent = lastScene ? '当前：' + XH.scene.explain(lastScene, S) : '当前：等待读取前台窗口…';
+  };
+  const paintDeps = () => {
+    document.querySelectorAll('[data-dep]').forEach((r) => r.classList.toggle('dim', !S[r.dataset.dep]));
+    $('aiCfg').style.opacity = S.chatOn ? '' : '.55';
+    paintSceneNow();
+  };
+  paintDeps();
+
+  /* ---------- 换装 ---------- */
+  const OUTFIT_NAME = { classic: '原版桦叶', cream: '晨露针织', plaid: '焦糖格纹', moon: '月白星月', star: '星绣奶油',
+    spring: '锦鲤红·春节', valentine: '莓果·情人节', dragon: '青艾·端午', midautumn: '玉兔·中秋', halloween: '南瓜·万圣', xmas: '冬青·圣诞' };
+  const DR = XH.dress; // 与桌宠共用 app-dress.js 的时段 / 节日规则
+  const autoLook = () => { DR.apply({ autoDress: true, festival: S.festival !== false }); return DR.state(); };
+  /* 节日卡片日期：最近一次（正在进行或即将到来）的窗口 */
+  const fmt = (t) => { const d = new Date(t); return (d.getMonth() + 1) + '/' + d.getDate(); };
+  function festLabel(id) {
+    const now = new Date(), t0 = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime(), y = now.getFullYear(), D1 = 86400000;
+    let best = null;
+    for (const f of DR.FEST) {
+      if (f.id !== id) continue;
+      for (const yy of [y - 1, y, y + 1]) {
+        const md = f.fixed || (DR.LUNAR[f.lunar] && DR.LUNAR[f.lunar][yy]); if (!md) continue;
+        const [m, d] = md.split('-').map(Number), a = new Date(yy, m - 1, d).getTime(), s = a + f.from * D1, e = a + f.to * D1;
+        if (e < t0) continue;
+        if (!best || s < best.s) best = { s, e, name: f.name, now: s <= t0 };
+      }
+    }
+    if (!best) return { text: '', now: false };
+    return { text: (best.now ? '进行中 · ' : '') + best.name + ' ' + fmt(best.s) + '–' + fmt(best.e), now: best.now };
+  }
+  function paintDress() {
+    if (!S.acc || typeof S.acc !== 'object') S.acc = {};
+    const A = S.autoDress ? autoLook() : null;
+    const cur = A ? A.outfit : S.outfit;
+    const acc = A ? A.acc : S.acc;
+    document.querySelectorAll('[data-outfit]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.outfit === cur)));
+    document.querySelectorAll('[data-fest]').forEach((b) => { const L = festLabel(b.dataset.fest); b.querySelector('small').textContent = L.text; b.classList.toggle('now', L.now); });
+    document.querySelectorAll('.chips[data-slot]').forEach((box) => {
+      const slot = box.dataset.slot, v = acc[slot] || '';
+      box.querySelectorAll('[data-id]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.id === v)));
+    });
+    const note = $('dressNote');
+    const fest = A && DR.FEST.some((f) => f.id === A.slot);
+    if (note) note.textContent = S.autoDress
+      ? (fest ? '节日换装中' : '跟随时间换装中') + '，当前是「' + (OUTFIT_NAME[cur] || '原版桦叶') + '」；手动选衣服或配饰会切到手动模式。'
+      : '手动模式，当前是「' + (OUTFIT_NAME[cur] || '原版桦叶') + '」。';
+  }
+  /* 切到手动时，以当前自动搭配为起点，只改用户点的那一项 */
+  const toManual = () => { if (S.autoDress) { const A = autoLook(); S.outfit = A.outfit; S.acc = { ...A.acc }; } S.autoDress = false; $('autoDress').checked = false; };
+  document.querySelectorAll('[data-outfit]').forEach((b) => b.addEventListener('click', () => {
+    toManual();
+    S.outfit = b.dataset.outfit;
+    /* 点节日套装时带上它的标志性配饰，之后再手动改配饰不会被覆盖 */
+    if (b.dataset.fest) S.acc = { ...DR.preset(b.dataset.fest).acc };
+    save();
+  }));
+  document.querySelectorAll('.chips[data-slot] [data-id]').forEach((b) => b.addEventListener('click', () => {
+    const slot = b.closest('.chips').dataset.slot, id = b.dataset.id;
+    toManual();
+    const a = Object.assign({}, S.acc, { [slot]: id });
+    /* 头顶配饰与大蝴蝶结互斥 */
+    if (slot === 'head' && id && a.hair === 'ribbon') a.hair = '';
+    if (slot === 'hair' && id === 'ribbon') a.head = '';
+    S.acc = a;
+    save();
+  }));
+  $('dressReset').addEventListener('click', () => {
+    S.outfit = 'classic'; S.acc = {}; S.autoDress = false;
+    $('autoDress').checked = false;
+    save();
+  });
+  paintDress();
+
+  /* ---------- 小助手 ---------- */
+  const qf = $('qf'), qt = $('qt');
+  for (let h = 0; h < 24; h++) { qf.add(new Option(h + ':00', h)); qt.add(new Option(h + ':00', h)); }
+  qf.value = S.quietFrom; qt.value = S.quietTo;
+  qf.addEventListener('change', () => { S.quietFrom = +qf.value; save(); });
+  qt.addEventListener('change', () => { S.quietTo = +qt.value; save(); });
+
+  const paintCity = () => { $('cityNow').innerHTML = S.city ? `当前城市：<span class="city-now"></span>` : '还没选城市，天气播报需要先选一个。'; if (S.city) $('cityNow').querySelector('span').textContent = S.city.name + (S.city.admin ? '（' + S.city.admin + '）' : ''); };
+  paintCity();
+  $('cityF').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const q = $('cityQ').value.trim(), ul = $('cities');
+    if (!q) return;
+    ul.innerHTML = '<li><button disabled>搜索中…</button></li>';
+    const list = await XH.searchCity(q);
+    ul.innerHTML = '';
+    if (!list) { ul.innerHTML = '<li><button disabled>网络好像不通，稍后再试</button></li>'; return; }
+    if (!list.length) { ul.innerHTML = '<li><button disabled>没找到，换个写法试试</button></li>'; return; }
+    list.forEach((c) => {
+      const li = document.createElement('li'), b = document.createElement('button'), sm = document.createElement('small');
+      b.type = 'button'; b.textContent = c.name; sm.textContent = c.admin; b.appendChild(sm);
+      b.addEventListener('click', () => { S.city = c; S.weather = true; $('weather').checked = true; ul.innerHTML = ''; $('cityQ').value = ''; paintCity(); save(); });
+      li.appendChild(b); ul.appendChild(li);
+    });
+  });
+
+  /* ---------- 对话 ---------- */
+  const PV = XH.chat.PROVIDERS, prov = $('provider');
+  Object.keys(PV).forEach((k) => prov.add(new Option(PV[k].name, k)));
+  prov.value = S.provider in PV ? S.provider : 'deepseek';
+  const keyStore = {
+    info: (p) => invoke ? invoke('chat_key_info', { provider: p }) : Promise.resolve((() => { const k = sessionStorage.getItem('xh-key-' + p) || ''; return { set: !!k, tail: k.slice(-4) }; })()),
+    set: (p, k) => invoke ? invoke('chat_key_set', { provider: p, key: k }) : Promise.resolve((() => { sessionStorage.setItem('xh-key-' + p, k); return { set: !!k, tail: k.slice(-4) }; })()),
+  };
+  const paintKey = (i) => {
+    const P = PV[S.provider];
+    $('keyNote').innerHTML = '';
+    const s = document.createElement('span');
+    if (P && P.nokey) s.textContent = '本地 Ollama 不需要密钥（先在本机运行 ollama serve）。';
+    else if (i && i.set) { s.className = 'ok'; s.textContent = `已保存密钥（末 4 位 ${i.tail}）· 只存在本机，不会上传到别处。清空输入框再点保存可删除。`; }
+    else s.textContent = '密钥只保存在本机，网页里看不到完整内容。';
+    $('keyNote').appendChild(s);
+  };
+  const paintProv = () => {
+    const P = PV[S.provider] || PV.custom, custom = S.provider === 'custom';
+    $('base').value = custom ? (S.base || '') : (S.base || P.base);
+    $('base').placeholder = custom ? 'https://…/v1（兼容 OpenAI 格式）' : P.base;
+    $('model').value = S.model || P.model;
+    $('model').placeholder = P.model || '模型名';
+    $('keyRow').style.display = P.nokey ? 'none' : '';
+    keyStore.info(S.provider).then(paintKey).catch(() => paintKey(null));
+    $('testNote').textContent = '';
+  };
+  paintProv();
+  const nick = $('nickname');
+  nick.value = S.nickname || '';
+  nick.addEventListener('change', () => { S.nickname = nick.value.trim().slice(0, 20); nick.value = S.nickname; save(); });
+  prov.addEventListener('change', () => { S.provider = prov.value; S.base = ''; S.model = ''; save(); paintProv(); });
+  $('base').addEventListener('change', () => { const P = PV[S.provider]; const v = $('base').value.trim(); S.base = v === P.base ? '' : v; save(); });
+  $('model').addEventListener('change', () => { const P = PV[S.provider]; const v = $('model').value.trim(); S.model = v === P.model ? '' : v; save(); });
+  $('keyF').addEventListener('submit', (e) => {
+    e.preventDefault();
+    keyStore.set(S.provider, $('key').value.trim()).then((i) => { $('key').value = ''; paintKey(i); }).catch((er) => { $('keyNote').textContent = '保存失败：' + er; });
+  });
+  $('test').addEventListener('click', () => {
+    const n = $('testNote'), b = $('test');
+    n.className = 'note'; n.textContent = '连接中…'; b.disabled = true;
+    XH.chat.test(S, (ok, t) => { b.disabled = false; n.className = 'note ' + (ok ? 'ok' : 'bad'); n.textContent = ok ? '连上了！她说：' + t : t; });
+  });
+  $('clear').addEventListener('click', () => { if (!confirm('清空聊天记录和长期记忆？她会忘掉之前聊过的内容。')) return; XH.chat.clear(); paintLog(); paintMem(); });
+  $('guide').addEventListener('click', () => send({ type: 'onboard' }));
+
+  /* ---------- 记忆 v2 ---------- */
+  const PROF_FIELDS = [['name', '称呼'], ['birthday', '生日'], ['city', '城市'], ['job', '工作 / 学习'], ['likes', '喜欢', 1], ['dislikes', '不喜欢', 1], ['taboos', '忌口 / 忌讳', 1]];
+  const MEM_NAME = { facts: '事实', events: '事件', promises: '约定' };
+
+  function paintProf() {
+    const box = $('memProf'); if (!box) return;
+    box.textContent = '';
+    const p = XH.memory.profile();
+    PROF_FIELDS.forEach(([k, label, wide]) => {
+      const l = document.createElement('label');
+      if (wide) l.className = 'wide';
+      l.appendChild(document.createTextNode(label));
+      const i = document.createElement('input');
+      i.className = 't'; i.dataset.p = k; i.spellcheck = false;
+      i.value = Array.isArray(p[k]) ? p[k].join('、') : (p[k] || '');
+      if (wide) i.placeholder = '用、分隔';
+      i.addEventListener('change', () => {
+        const m = XH.memory.load();
+        const old = m.profile[k];
+        m.profile[k] = Array.isArray(old) ? i.value.split(/[、,，]/).map((s) => s.trim()).filter(Boolean).slice(0, 12) : i.value.trim().slice(0, 60);
+        XH.memory.save(m);
+        i.blur();
+      });
+      l.appendChild(i); box.appendChild(l);
+    });
+  }
+
+  function paintMem() {
+    if (!$('memProf')) return;
+    const ae = document.activeElement;
+    if (ae && ae.tagName && /INPUT|TEXTAREA/.test(ae.tagName) && ae.closest && ae.closest('#memProf, #memList, #memAdd')) return;
+    paintProf();
+    const m = XH.memory.load();
+    document.querySelectorAll('#memCat button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.v === memCat)));
+    const list = m[memCat] || [], box = $('memList');
+    box.textContent = '';
+    if (!list.length) {
+      const e = document.createElement('p'); e.className = 'note'; e.textContent = `还没有${MEM_NAME[memCat]}。`; box.appendChild(e);
+    }
+    list.forEach((it) => {
+      const row = document.createElement('div'); row.className = 'mem-item';
+      if (memCat === 'promises') {
+        const ck = document.createElement('button'); ck.type = 'button'; ck.textContent = it.done ? '✓' : '○';
+        ck.className = it.done ? 'done' : ''; ck.title = '标记完成'; ck.setAttribute('aria-label', '标记完成');
+        ck.addEventListener('click', () => { XH.memory.toggle('promises', it.id); paintMem(); });
+        row.appendChild(ck);
+      }
+      const inp = document.createElement('input');
+      inp.className = 't' + (memCat === 'promises' && it.done ? ' off' : '');
+      inp.value = it.text; inp.setAttribute('aria-label', MEM_NAME[memCat] + '内容');
+      inp.addEventListener('change', () => { XH.memory.update(memCat, it.id, inp.value); paintMem(); });
+      row.appendChild(inp);
+      if (memCat === 'facts') {
+        const pin = document.createElement('button'); pin.type = 'button'; pin.textContent = '顶'; pin.title = '置顶（更容易被想起）';
+        pin.addEventListener('click', () => { XH.memory.pin('facts', it.id); paintMem(); }); row.appendChild(pin);
+      }
+      if (memCat === 'events' && it.date) {
+        const d = document.createElement('span'); d.className = 'mem-count'; d.textContent = it.date.slice(5); row.appendChild(d);
+      }
+      const del = document.createElement('button'); del.type = 'button'; del.textContent = '删'; del.title = '删除这条';
+      del.addEventListener('click', () => { XH.memory.remove(memCat, it.id); paintMem(); }); row.appendChild(del);
+      box.appendChild(row);
+    });
+    $('memCount').textContent = `事实 ${m.facts.length} · 事件 ${m.events.length} · 约定 ${m.promises.length}`;
+  }
+
+  document.querySelectorAll('#memCat button').forEach((b) => b.addEventListener('click', () => { memCat = b.dataset.v; paintMem(); }));
+  $('memAdd').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const t = $('memNew').value.trim(); if (!t) return;
+    const kind = $('memKind').value;
+    XH.memory.add(kind, t); $('memNew').value = ''; $('memNew').blur(); memCat = kind; paintMem();
+  });
+  $('memClear').addEventListener('click', () => {
+    if (!confirm('清空全部记忆？档案、事实、事件和约定都会被删掉。')) return;
+    XH.memory.clear(); paintMem();
+  });
+
+  /* ---------- 聊天记录 ---------- */
+  const dayLabel = (d) => {
+    const t = new Date(), x = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+    const today = new Date(t.getFullYear(), t.getMonth(), t.getDate()).getTime();
+    if (x === today) return '今天';
+    if (x === today - 86400000) return '昨天';
+    return (d.getMonth() + 1) + '月' + d.getDate() + '日';
+  };
+  function paintLog() {
+    const box = $('log'); if (!box) return;
+    const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 48;
+    const keep = box.scrollTop;
+    const q = $('logQ').value.trim().toLowerCase();
+    const log = XH.chat.loadLog();
+    const rows = [];
+    log.forEach((m, i) => {
+      if (q && !((m.content || '').toLowerCase().includes(q) || (m.mood || '').toLowerCase().includes(q))) return;
+      rows.push([m, i]);
+    });
+    box.textContent = '';
+    if (!rows.length) {
+      const e = document.createElement('div'); e.className = 'log-empty';
+      e.textContent = q ? '没找到匹配的聊天。' : '还没有聊过天。双击小嬅，或在下面输入。';
+      box.appendChild(e); return;
+    }
+    let lastDay = '';
+    rows.slice(-80).forEach(([m, idx]) => {
+      const d = new Date(m.t || Date.now()), key = d.toDateString();
+      if (key !== lastDay) {
+        lastDay = key;
+        const h = document.createElement('div'); h.className = 'log-day'; h.textContent = dayLabel(d); box.appendChild(h);
+      }
+      const entry = document.createElement('div');
+      entry.className = 'entry ' + (m.role === 'user' ? 'u' : 'a');
+      const msg = document.createElement('div');
+      msg.className = 'msg ' + (m.role === 'user' ? 'u' : 'a');
+      if (m.role !== 'user' && m.mood) { const i = document.createElement('i'); i.textContent = m.mood; msg.appendChild(i); }
+      msg.appendChild(document.createTextNode(m.content || ''));
+      const del = document.createElement('button');
+      del.type = 'button'; del.className = 'del'; del.textContent = '×'; del.title = '删除这条'; del.setAttribute('aria-label', '删除这条');
+      del.addEventListener('click', () => {
+        const l = XH.chat.loadLog(); l.splice(idx, 1); XH.chat.saveLog(l); paintLog();
+      });
+      if (m.role === 'user') { entry.appendChild(del); entry.appendChild(msg); }
+      else { entry.appendChild(msg); entry.appendChild(del); }
+      box.appendChild(entry);
+    });
+    box.scrollTop = atBottom ? box.scrollHeight : keep;
+  }
+  $('logQ').addEventListener('input', paintLog);
+
+  /* 导出 / 导入（聊天 + 记忆一起带走） */
+  const stamp = () => { const d = new Date(); return d.getFullYear() + String(d.getMonth() + 1).padStart(2, '0') + String(d.getDate()).padStart(2, '0'); };
+  const download = (name, obj) => {
+    const b = new Blob([JSON.stringify(obj, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = name;
+    document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 1500);
+  };
+  $('logExport').addEventListener('click', () => download('小嬅聊天_' + stamp() + '.json', { v: 2, exportedAt: Date.now(), log: XH.chat.loadLog(), memory: XH.memory.load() }));
+  $('memExport').addEventListener('click', () => download('小嬅记忆_' + stamp() + '.json', XH.memory.exportData()));
+  $('logImport').addEventListener('click', () => $('logFile').click());
+  $('logFile').addEventListener('change', async (e) => {
+    const f = e.target.files && e.target.files[0]; e.target.value = '';
+    if (!f) return;
+    try {
+      const j = JSON.parse(await f.text());
+      if (!confirm('导入会替换当前的聊天记录和记忆，确定吗？')) return;
+      if (Array.isArray(j.log)) XH.chat.saveLog(j.log.filter((m) => m && m.role && typeof m.content === 'string').slice(-200));
+      if (j.memory) XH.memory.importData(j.memory);
+      paintLog(); paintMem();
+      $('testNote').className = 'note ok'; $('testNote').textContent = '导入完成。';
+    } catch (_) {
+      $('testNote').className = 'note bad'; $('testNote').textContent = '这个文件读不出来…';
+    }
+  });
+
+  window.addEventListener('storage', (e) => {
+    if ((e.key === 'xh-chat-log' || e.key === 'xh-chat-ping' || e.key === 'xh-memory-v2' || e.key === 'xh-memory') && !$('p-chat').hidden) { paintLog(); paintMem(); }
+  });
+  setInterval(() => { if (!$('p-chat').hidden && !document.hidden) { paintLog(); paintMem(); } }, 2500);
+
+  /* 桌面感知状态 */
+  if (T && T.event) T.event.listen('pet://scene', (e) => { lastScene = e.payload; paintSceneNow(); }).catch(() => {});
+  $('sceneBlock').value = S.sceneBlock || '';
+  $('sceneBlock').addEventListener('change', () => { S.sceneBlock = $('sceneBlock').value.trim(); save(); });
+
+  $('sayF').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const v = $('sayIn').value.trim(); if (!v) return;
+    if (!S.chatOn) { $('testNote').className = 'note bad'; $('testNote').textContent = '先打开上面的「开启对话」哦'; return; }
+    $('sayIn').value = ''; send({ type: 'say', text: v }); setTimeout(paintLog, 300);
+  });
+
+  chatUiReady = true;
+  if (!$('p-chat').hidden) { paintLog(); paintMem(); }
+
+  /* ---------- 设置 ---------- */
+  const scale = $('scale'), out = $('scaleOut');
+  scale.value = S.scale; out.textContent = S.scale + '%';
+  scale.addEventListener('input', () => { out.textContent = scale.value + '%'; });
+  scale.addEventListener('change', () => { S.scale = +scale.value; save(); call('set_scale', { pct: S.scale }); });
+
+  const vol = $('vol'), volOut = $('volOut'), sfxSw = $('sfx');
+  const paintVol = () => { vol.value = S.vol; volOut.textContent = S.vol + '%'; vol.disabled = !S.sfx; $('voice').disabled = !S.sfx; };
+  paintVol();
+  sfxSw.addEventListener('change', paintVol);
+  $('voice').addEventListener('change', () => send({ type: 'sfx', name: 'tilt' }));
+  vol.addEventListener('input', () => { volOut.textContent = vol.value + '%'; });
+  vol.addEventListener('change', () => { S.vol = +vol.value; save(); send({ type: 'sfx', name: 'nod' }); });
+  $('try').addEventListener('click', () => send({ type: 'sfx', name: 'greet' }));
+
+  /* ---------- 开机自启（状态以注册表为准，不存 localStorage） ---------- */
+  const auto = $('autostart'), autoNote = $('autoNote');
+  const note = (s, bad) => { autoNote.hidden = !s; autoNote.className = 'note' + (bad ? ' bad' : ''); autoNote.textContent = s || ''; };
+  const readAuto = () => { if (!invoke) { auto.disabled = true; note('浏览器预览里不能设置开机自启'); return; } invoke('autostart_get').then((v) => { auto.checked = !!v; }).catch(() => {}); };
+  readAuto();
+  auto.addEventListener('change', () => {
+    if (!invoke) return;
+    const want = auto.checked; auto.disabled = true; note('');
+    invoke('autostart_set', { on: want })
+      .then((real) => { auto.checked = !!real; if (real !== want) note('设置失败，请稍后再试', true); })
+      .catch((er) => { auto.checked = !want; note('设置失败：' + er, true); })
+      .finally(() => { auto.disabled = false; });
+  });
+  /* 托盘里切换后同步；面板重新显示时也重读一次 */
+  if (T && T.event) T.event.listen('pet://autostart', (e) => { auto.checked = !!e.payload; note(''); }).catch(() => {});
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) readAuto(); });
+
+  $('sleep').addEventListener('click', () => send({ type: 'sleep' }));
+  $('home').addEventListener('click', () => call('move_home'));
+  $('hide').addEventListener('click', () => call('toggle_pet'));
+  $('quit').addEventListener('click', () => call('quit_app'));
+})();
+</script>
+</body>
+</html>

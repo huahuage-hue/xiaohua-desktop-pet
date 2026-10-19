@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>小嬅 · Live2D 互动预览</title>
+<style>
+/* OD-LAYOUT-PRIMITIVES v1 — structure only: display, flex/grid, overflow, wrapping, ratio, geometry.
+   Put this @layer first; product CSS outside the layer always wins. */
+@layer od-layout {
+  :where(.od-stack,.od-row,.od-row-top,.od-cluster,.od-grid,.od-field,.od-stat,.od-cell,.od-tile) > :where(*) { min-width: 0; }
+  .od-stack   { display: flex; flex-direction: column; gap: var(--od-gap, 8px); }
+  .od-row     { display: flex; align-items: center; gap: var(--od-gap, 8px); }
+  .od-row-top { display: flex; align-items: flex-start; gap: var(--od-gap, 8px); }
+  .od-cluster { display: flex; flex-wrap: wrap; align-items: center; gap: var(--od-gap, 8px); }
+  .od-fill    { flex: 1 1 0; min-width: 0; }
+  .od-fixed   { flex: none; }
+  .od-grid    { display: grid; gap: var(--od-gap, 12px); grid-template-columns: repeat(var(--od-cols, 3), minmax(0, 1fr)); }
+  .od-stat, .od-field, .od-cell { display: grid; gap: var(--od-gap, 2px); }
+  :where(.od-stat,.od-field,.od-cell) > :where(*) { display: block; }
+  .od-tile { display: grid; grid-template-rows: auto 1fr; }
+  :where(.od-tile) > :where(*) { display: block; }
+  .od-media { display: block; width: 100%; height: auto; aspect-ratio: var(--od-ratio, auto); }
+  .od-media-cover { object-fit: cover; }
+  .od-icon { display: inline-block; inline-size: var(--od-icon-size, 1em); block-size: var(--od-icon-size, 1em); flex: none; }
+  .od-truncate { display: block; max-width: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .od-clamp-2, .od-clamp-3 { display: -webkit-box; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+  .od-clamp-2 { -webkit-line-clamp: 2; }
+  .od-clamp-3 { -webkit-line-clamp: 3; }
+  .od-lines-2 { min-height: calc(2 * 1.4em); }
+  .od-nowrap  { white-space: nowrap; }
+  .od-keep    { word-break: keep-all; overflow-wrap: anywhere; }
+  .od-screen { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; height: 100%; }
+  .od-scroll { overflow-y: auto; overscroll-behavior: contain; min-height: 0; }
+  .od-rail { display: flex; gap: var(--od-gap, 8px); overflow-x: auto; scroll-snap-type: x proximity; scrollbar-width: none;
+             padding-inline: var(--od-rail-pad, 16px); scroll-padding-inline: var(--od-rail-pad, 16px); }
+  .od-rail::-webkit-scrollbar { display: none; }
+  :where(.od-rail) > :where(*) { flex: none; scroll-snap-align: start; }
+  :where(.od-rail) > :where(:last-child) { margin-inline-end: var(--od-rail-pad, 16px); }
+  .od-spacer { flex: none; visibility: hidden; pointer-events: none; }
+  .od-touch  { min-width: 44px; min-height: 44px; }
+}
+/* /OD-LAYOUT-PRIMITIVES v1 */
+
+:root {
+  --bg: #E8ECE9;          /* 桦林冷灰 */
+  --panel: #FBFCFB;
+  --paper: #F5F1E6;       /* 立绘自带底色，仅用于舞台以免画面出现色差边 */
+  --ink: #1E2320;         /* 桦树皮炭灰 */
+  --ink-2: #4A524D;
+  --line: #D3D9D5;
+  --moss: #46632F;        /* 苔绿点缀 */
+  --moss-soft: #E3EBDC;
+  --focus: #2F5D8A;
+  --radius: 12px;
+  --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 24px;
+  --fs-body: 16px; --fs-small: 14px; --fs-mono: 13px; --fs-title: 28px;
+  --font-body: system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", "Noto Sans SC", sans-serif;
+  --font-display: "Noto Serif SC", "Source Han Serif SC", "Songti SC", "STSong", "SimSun", serif;
+  --font-mono: ui-monospace, "SFMono-Regular", Consolas, "Cascadia Mono", monospace;
+  --t-fast: 160ms; --t-mid: 260ms;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body { background: var(--bg); color: var(--ink); font: var(--fs-body)/1.6 var(--font-body); }
+.app { display: grid; grid-template-rows: auto minmax(0, 1fr); height: 100vh; height: 100dvh; }
+
+.top { padding: var(--s3) var(--s5); --od-gap: 16px; border-bottom: 1px solid var(--line); background: var(--panel); }
+.brand h1 { margin: 0; font: 600 var(--fs-title)/1.2 var(--font-display); letter-spacing: 0.04em; }
+.brand p { margin: 0; color: var(--ink-2); font-size: var(--fs-small); }
+.bark { width: 40px; height: 40px; flex: none; display: block; }
+
+.main { display: grid; grid-template-columns: minmax(0, 1fr) 380px; min-height: 0; }
+
+.stage-wrap { display: grid; grid-template-rows: minmax(0, 1fr) auto; min-height: 0; padding: var(--s5); gap: var(--s3); }
+.stage { position: relative; background: var(--paper); border-radius: var(--radius); border: 1px solid var(--line); min-height: 0; overflow: hidden; }
+.stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+#gl { touch-action: none; cursor: grab; }
+#gl.dragging { cursor: grabbing; }
+#gl:focus-visible { outline: 3px solid var(--focus); outline-offset: -3px; }
+#fx { pointer-events: none; }
+.stage-msg { position: absolute; top: var(--s4); left: 50%; transform: translateX(-50%); margin: 0;
+  background: var(--ink); color: #fff; padding: var(--s1) var(--s4); border-radius: 999px; font-size: var(--fs-small);
+  opacity: 0; transition: opacity var(--t-mid) ease-out; pointer-events: none; white-space: nowrap; }
+.stage-msg.show { opacity: 1; }
+.loading { position: absolute; inset: 0; display: grid; place-items: center; padding: var(--s5); text-align: center; color: var(--ink-2); font-size: var(--fs-small); }
+
+.hint { color: var(--ink-2); font-size: var(--fs-small); --od-gap: 8px 16px; justify-content: center; }
+.hint span { white-space: nowrap; }
+.hint b { color: var(--ink); font-weight: 600; }
+
+.panel { background: var(--panel); border-left: 1px solid var(--line); min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; }
+.panel-head { padding: var(--s3) var(--s5); border-bottom: 1px solid var(--line); min-height: 64px; }
+.panel-head h2 { margin: 0; font: 600 18px/1.4 var(--font-display); }
+.panel-body { padding: var(--s4) var(--s5) var(--s5); }
+.panel-foot { padding: var(--s3) var(--s5); border-top: 1px solid var(--line); }
+.close-panel, .open-panel { display: none; }
+
+section + section { margin-top: var(--s5); }
+.sec-title { margin: 0 0 var(--s3); font-size: var(--fs-small); font-weight: 600; color: var(--ink-2); letter-spacing: 0.08em; }
+
+.btn { font: inherit; font-size: var(--fs-small); min-height: 44px; padding: 0 var(--s4); border-radius: 10px; border: 1px solid var(--line);
+  background: #fff; color: var(--ink); cursor: pointer; transition: background var(--t-fast) ease-out, border-color var(--t-fast) ease-out; }
+.btn:focus-visible, .switch input:focus-visible + .track, input[type=range]:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+@media (hover: hover) { .btn:hover { background: var(--moss-soft); border-color: var(--moss); } }
+.btn[aria-pressed="true"] { background: var(--moss); border-color: var(--moss); color: #fff; }
+.actions { --od-cols: 2; --od-gap: 8px; }
+
+.opts { --od-gap: 4px; }
+.opt { min-height: 48px; --od-gap: 12px; cursor: pointer; }
+.opt .od-field small { color: var(--ink-2); font-size: var(--fs-small); line-height: 1.4; }
+.switch { position: relative; display: block; width: 44px; height: 26px; }
+.switch input { position: absolute; inset: 0; opacity: 0; width: 100%; height: 100%; margin: 0; cursor: pointer; }
+.switch .track { display: block; width: 44px; height: 26px; border-radius: 13px; background: #8E9892; position: relative; transition: background var(--t-fast) ease-out; }
+.switch .track::after { content: ""; position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 50%; background: #fff; transition: transform var(--t-fast) ease-out; }
+.switch input:checked + .track { background: var(--moss); }
+.switch input:checked + .track::after { transform: translateX(18px); }
+
+.param { padding: var(--s2) 0; border-bottom: 1px dashed var(--line); }
+.param:last-child { border-bottom: 0; }
+.param .name { font-size: var(--fs-small); font-weight: 600; line-height: 1.4; }
+.param .pid { font: var(--fs-mono)/1.4 var(--font-mono); color: var(--ink-2); }
+.param output { font: var(--fs-mono)/1.4 var(--font-mono); color: var(--moss); min-width: 56px; text-align: right; white-space: nowrap; }
+input[type=range] { display: block; width: 100%; accent-color: var(--moss); margin: var(--s1) 0 0; height: 28px; cursor: pointer; }
+
+.meters { --od-gap: 8px; }
+.meter { --od-gap: 12px; font-size: var(--fs-small); }
+.meter .lbl { width: 64px; }
+.meter .bar { position: relative; display: block; height: 8px; border-radius: 4px; background: #E1E6E2; }
+.meter .bar::before { content: ""; position: absolute; left: 50%; top: -2px; width: 1px; height: 12px; background: #8E9892; }
+.meter .bar i { position: absolute; top: 0; left: 50%; width: 50%; height: 8px; border-radius: 4px; background: var(--moss); transform-origin: left center; transform: scaleX(0); }
+.meter code { font: var(--fs-mono)/1.4 var(--font-mono); color: var(--ink-2); width: 112px; text-align: right; white-space: nowrap; }
+
+.layers { max-height: 360px; overflow-y: auto; border: 1px solid var(--line); border-radius: 10px; padding: 0 var(--s3); }
+.layer { --od-gap: 8px; min-height: 48px; border-bottom: 1px dashed var(--line); }
+.layer:last-child { border-bottom: 0; }
+.layer .lyr-main { --od-gap: 10px; cursor: pointer; min-height: 44px; }
+.layer input[type=checkbox] { width: 18px; height: 18px; accent-color: var(--moss); margin: 0; flex: none; cursor: pointer; }
+.layer .name { font-size: var(--fs-small); line-height: 1.4; }
+.layer code { font: var(--fs-mono)/1.4 var(--font-mono); color: var(--ink-2); }
+.layer .solo { min-height: 36px; padding: 0 var(--s3); }
+.lyr-count { font-weight: 400; color: var(--ink-2); }
+.note a { color: var(--moss); }
+.note { margin: 0; font-size: var(--fs-small); color: var(--ink-2); line-height: 1.6; }
+.note + .note { margin-top: var(--s2); }
+.scrim { display: none; }
+
+@media (max-width: 899px) {
+  .main { grid-template-columns: minmax(0, 1fr); }
+  .top { padding: var(--s2) var(--s4); --od-gap: 12px; }
+  .brand h1 { font-size: 22px; }
+  .bark { width: 32px; height: 32px; }
+  .stage-wrap { padding: var(--s3); }
+  .open-panel, .close-panel { display: block; }
+  .panel { position: fixed; left: 0; right: 0; bottom: 0; max-height: 78dvh; border-left: 0; border-top: 1px solid var(--line);
+    border-radius: 16px 16px 0 0; box-shadow: 0 -8px 32px rgba(20, 30, 25, 0.18); z-index: 20;
+    transform: translateY(105%); visibility: hidden; transition: transform 180ms ease-in, visibility 0s linear 180ms; }
+  .panel.open { transform: none; visibility: visible; transition: transform var(--t-mid) ease-out; }
+  .scrim.open { display: block; position: fixed; inset: 0; background: rgba(20, 30, 25, 0.35); z-index: 10; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition-duration: 1ms !important; }
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="top od-row">
+    <svg class="bark" viewBox="0 0 40 40" role="img" aria-label="桦树皮标志">
+      <rect x="2" y="2" width="36" height="36" rx="8" fill="#F4F6F4" stroke="#1E2320" stroke-width="2"/>
+      <path d="M9 12h10M23 12h6M12 20h5M21 20h10M9 28h8M24 28h6" stroke="#1E2320" stroke-width="2.5" stroke-linecap="round"/>
+      <path d="M29 5c3 2 4 5 3 8" stroke="#46632F" stroke-width="2" fill="none" stroke-linecap="round"/>
+    </svg>
+    <div class="brand od-fill">
+      <h1>小嬅</h1>
+      <p class="od-truncate">Live2D 互动预览 · 分层驱动版 · 原画像素 + Seedream 补画</p>
+    </div>
+    <button class="btn open-panel od-fixed" id="openPanel" aria-controls="panel" aria-expanded="false">参数面板</button>
+  </header>
+
+  <div class="main">
+    <div class="stage-wrap">
+      <div class="stage" id="stage">
+        <div class="loading" id="loading">正在加载小嬅…</div>
+        <canvas id="gl" tabindex="0" role="img" aria-label="小嬅互动模型。移动鼠标让她看过来，点击头、身体或云朵触发反应，按住可拖拽。键盘：回车摸头，B 害羞，C 看云朵，1–7 依次为打招呼、挥手、点头、歪头、东张西望、小跳、生气，方向键转头。"></canvas>
+        <canvas id="fx" aria-hidden="true"></canvas>
+        <p class="stage-msg" id="msg" role="status" aria-live="polite"></p>
+      </div>
+      <div class="hint od-cluster">
+        <span><b>移动鼠标</b> 视线跟随</span>
+        <span><b>点击</b> 头 / 身体 / 云朵</span>
+        <span><b>按住拖拽</b> 桌宠甩动</span>
+        <span><b>闲置 60 秒</b> 自动睡着</span>
+      </div>
+    </div>
+
+    <div class="scrim" id="scrim"></div>
+    <aside class="panel" id="panel" aria-label="参数面板">
+      <div class="panel-head od-row">
+        <h2 class="od-fill">参数面板</h2>
+        <button class="btn close-panel od-fixed" id="closePanel">关闭</button>
+      </div>
+      <div class="panel-body od-scroll">
+        <section>
+          <h3 class="sec-title">表情</h3>
+          <div class="od-grid actions">
+            <button class="btn" data-motion="shy">害羞</button>
+            <button class="btn" data-motion="tilt">歪头疑惑</button>
+            <button class="btn" data-motion="angry">鼓脸生气</button>
+            <button class="btn" data-motion="yawn">打哈欠</button>
+          </div>
+          <h3 class="sec-title">动作</h3>
+          <div class="od-grid actions">
+            <button class="btn" data-motion="greet">打招呼</button>
+            <button class="btn" data-motion="wave">挥手</button>
+            <button class="btn" data-motion="nod">点头</button>
+            <button class="btn" data-motion="look">东张西望</button>
+            <button class="btn" data-motion="hop">开心小跳</button>
+            <button class="btn" data-motion="tapHead">摸摸头</button>
+            <button class="btn" data-motion="tapCloud">看云朵</button>
+            <button class="btn" id="sleepBtn" aria-pressed="false">睡觉</button>
+            <button class="btn" data-motion="showcase">展示一遍</button>
+          </div>
+        </section>
+
+        <section>
+          <h3 class="sec-title">选项</h3>
+          <div class="od-stack opts">
+            <label class="opt od-row">
+              <span class="od-field od-fill"><span>跟随鼠标</span><small>头和身体转向指针</small></span>
+              <span class="switch od-fixed"><input type="checkbox" id="optFollow" checked><span class="track"></span></span>
+            </label>
+            <label class="opt od-row">
+              <span class="od-field od-fill"><span>自动眨眼</span><small>每 2–6 秒随机眨一次</small></span>
+              <span class="switch od-fixed"><input type="checkbox" id="optBlink" checked><span class="track"></span></span>
+            </label>
+            <label class="opt od-row">
+              <span class="od-field od-fill"><span>显示道具</span><small>ParamPropsVisible · 云朵与星星</small></span>
+              <span class="switch od-fixed"><input type="checkbox" id="optProps" checked><span class="track"></span></span>
+            </label>
+          </div>
+        </section>
+
+        <section>
+          <h3 class="sec-title">参数（滑杆为基础值 · 右侧为实时值）</h3>
+          <div id="params"></div>
+        </section>
+
+        <section>
+          <h3 class="sec-title od-row"><span class="od-fill">图层（自上而下，与 PSD 同名）</span><span class="od-fixed lyr-count" id="layerCount"></span></h3>
+          <div class="layers" id="layers"></div>
+        </section>
+
+        <section>
+          <h3 class="sec-title">物理输出</h3>
+          <div class="od-stack meters" id="meters"></div>
+        </section>
+
+        <section>
+          <h3 class="sec-title">说明</h3>
+          <p class="note">现在由 psd/xiaohua_layers.psd 的同一套图层驱动：每层一张网格，挂到方案第 5 章的变形器上。转头时前发、五官、脸、后发、兜帽按不同幅度移动，形成层次。</p>
+          <p class="note">眨眼：眼睑先下移压扁，最后 15% 才换成闭眼线（︶ / 笑眼 ^ 均为独立图层），不会出现双线。闭嘴、云朵笑脸同为独立图层。被遮挡处由 Seedream 补画（兜帽内壁、手后的毛衣与斗篷）。</p>
+          <p class="note">旧的单图版本保存在 <a href="legacy/index.html">legacy/index.html</a>。</p>
+        </section>
+      </div>
+      <div class="panel-foot od-row">
+        <button class="btn od-fill" id="resetBtn">重置参数</button>
+      </div>
+    </aside>
+  </div>
+</div>
+
+<script src="assets/xiaohua_layers.js"></script>
+<script src="assets/app-core.js"></script>
+<script src="assets/app-render.js"></script>
+<script src="assets/xiaohua_wardrobe.js"></script>
+<script src="assets/app-dress.js"></script>
+<script src="assets/app-sfx.js"></script>
+<script src="assets/app-bubble.js"></script>
+<script src="assets/app-assist.js"></script>
+<script src="assets/app.js"></script>
+<script>/* 网页预览：小助手只开报时 / 摸头报时（天气需要城市，面板在桌宠里） */(function w(){ if (!window.XH || !XH.pet || !XH.assist) return setTimeout(w, 100); XH.assist.start(XH.pet, () => ({ chime: true, askTap: true, bedtime: true }), null); })();</script>
+</body>
+</html>
