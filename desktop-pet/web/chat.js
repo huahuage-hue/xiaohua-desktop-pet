@@ -45,6 +45,7 @@
   const TOOL_LINE = '你可以用工具帮用户做一些简单的事：看时间、查天气、设提醒、记便签、打开网页或浏览器搜索、打开电脑上的程序、读写剪贴板。' +
     '用户想让你做这些事时直接调用工具；需要确认的工具会自动弹出确认，你不用先口头问。工具结果回来后用一两句话告诉用户结果，不要编造结果。' +
     '工具做不到的事（删文件、运行命令、操作别的软件里面的内容）就老实说做不到。';
+  const LOOK_LINE = '用户让你看看屏幕、帮忙看报错或问“我屏幕上这是什么”时，调用 look_screen 看一眼再回答；平时不要主动去看。';
   function system(c, q, o) {
     const now = new Date();
     const when = `现在是${now.getFullYear()}年${now.getMonth() + 1}月${now.getDate()}日 星期${'日一二三四五六'[now.getDay()]} ${now.getHours()}:${String(now.getMinutes()).padStart(2, '0')}。`;
@@ -55,8 +56,10 @@
     const memLine = mem ? `\n你记得这些关于用户的事（自然地带出来，不要逐条复述）：\n${mem}` : '';
     const scene = sceneText();
     const sceneLine = scene ? `\n${scene}` : '';
-    const see = '你只能模糊感觉到用户正在用哪类软件，看不到具体内容，不要说得像在偷看屏幕。';
-    const can = o && o.tools ? TOOL_LINE : '你能看到的只有对话内容，不能操作电脑、不能上网。';
+    const look = !!(o && o.tools && c.visionOn);
+    const see = look ? '平时你只能模糊感觉到用户在用哪类软件；只有用 look_screen 看过之后才知道屏幕上的具体内容，不要说得像一直在盯着屏幕。'
+      : '你只能模糊感觉到用户正在用哪类软件，看不到具体内容，不要说得像在偷看屏幕。';
+    const can = o && o.tools ? TOOL_LINE + (look ? LOOK_LINE : '') : '你能看到的只有对话内容，不能操作电脑、不能上网。';
     if (c.persona === 'plain') return `你是住在用户电脑桌面上的小助手“小嬅”。回答准确、直接、简洁，用中文。${nick}${memLine}${sceneLine}${see}${can}${len}。不要使用 Markdown、列表或表情符号。${tag}${when}`;
     return `你是“小嬅”，一个住在用户电脑桌面上的小女孩桌宠：金棕色长发、头戴黑色蝴蝶结、穿白衬衫和格子裙，性格活泼、有点害羞、偶尔小傲娇，喜欢甜点和下雨天。` +
       `用中文口语和用户聊天，语气可爱自然，可以用“呀、啦、哦、嘛”，但不要每句都用；不知道的事情就老实说不知道，不要编造。${nick}${memLine}${sceneLine}${see}` +
@@ -107,6 +110,7 @@
   /* 事件会广播给所有窗口（桌宠 + 面板 + 聊天窗），序号起点随机错开，免得互相认错 */
   let seq = ((Math.random() * 1e6) | 0) * 1000 + 1;
   const handlers = new Map();
+  let curId = 0;
   if (T) T.event.listen('pet://chat', (e) => { const p = e.payload, h = handlers.get(p.id); if (h) h(p.kind, p.text); });
   const FINAL = { done: 1, error: 1, cancel: 1 };
 
@@ -168,13 +172,16 @@
     const id = seq++;
     let over = false, timer = 0;
     const fin = (k, t) => { if (over) return; if (FINAL[k]) { over = true; clearTimeout(timer); handlers.delete(id); } emit(k, t); };
+    /* Rust 那边同一时间只有一个请求（全局序号）：只有自己还是当前请求时才发 chat_cancel，免得误杀后来的请求 */
+    const kill = () => { if (invoke && curId === id) invoke('chat_cancel').catch(() => {}); };
     /* 总超时：30 秒内没有任何新动静就放弃（思考 / 工具分片也算动静） */
-    const arm = () => { clearTimeout(timer); timer = setTimeout(() => { if (invoke) invoke('chat_cancel').catch(() => {}); fin('error', '等了好久都没有回音…'); }, 30000); };
+    const arm = () => { clearTimeout(timer); timer = setTimeout(() => { kill(); fin('error', '等了好久都没有回音…'); }, 30000); };
     arm();
     const on = (k, t) => { if (!FINAL[k]) arm(); fin(k, t); };
     const tokens = maxTokens || (c.len === 'm' ? 400 : 160);
     if (invoke) {
       handlers.set(id, on);
+      curId = id;
       const req = { id, provider: c.provider, base: c.base, model: c.model, messages, max_tokens: tokens, test };
       if (opt && opt.tools) req.tools = opt.tools;
       if (opt && opt.extra) req.extra = opt.extra;
@@ -182,13 +189,14 @@
     } else {
       browserSend(c, messages, test, sessionStorage.getItem('xh-key-' + c.provider) || '', on, tokens, opt);
     }
-    return () => { if (invoke) invoke('chat_cancel').catch(() => {}); fin('cancel', ''); };
+    return () => { kill(); fin('cancel', ''); };
   }
 
   /* ---------- 长期记忆抽取 ---------- */
   let cancel = null, extracting = false, memSince = 0, memCancel = null;
   /* 本次运行里确认不支持工具 / 思考参数的模型，不再带这些参数 */
   const noTools = {}, noThink = {};
+  let lastAutoLook = 0;
 
   const EXTRACT_PROMPT = '你负责为桌宠“小嬅”整理长期记忆。从下面的对话里只提取“以后还用得上”的信息：用户的称呼、生日、城市、工作/学习、喜好、忌口，稳定的事实、最近发生的事、约定。' +
     '不要提取一次性的寒暄、情绪、玩笑、对话里的临时问题；不要记录密码、账号、身份证、银行卡、详细住址、财务数据、疾病诊断等敏感信息；不要推测。' +
@@ -255,9 +263,22 @@
       if (!c.base || !c.model) return cb(false, '请先填写接口地址和模型名');
       request(c, [{ role: 'user', content: '你好，回复“好”即可' }], true, (k, t) => { if (FINAL[k]) cb(k === 'done', t); });
     },
+    /* 发一次不流式展示的请求，拿到整段文字（看屏幕的视觉模型用）。c = {provider, base, model}；失败 reject */
+    ask(c, messages, maxTokens) {
+      return new Promise((resolve, reject) => {
+        let out = '';
+        request({ len: 'm', ...c }, messages, false, (k, t) => {
+          if (k === 'delta') out += t;
+          else if (k === 'done') resolve(out);
+          else if (k === 'error') reject(new Error(/^__NO_/.test(t) ? '这个模型不支持看图' : t));
+          else if (k === 'cancel') reject(new Error('取消了'));
+        }, maxTokens || 400);
+      });
+    },
     /* 和她说一句：P = XH.pet；hooks = {user, start, think, tool, confirm, mood, delta, end, card}
-       hooks.tool({id, name, label, state: run|ok|no})；hooks.confirm(text) → Promise<bool> */
-    send(text, S, P, hooks) {
+       hooks.tool({id, name, label, state: run|ok|no})；hooks.confirm(text) → Promise<bool>
+       opt.look：先看一眼屏幕再回答（聊天栏的眼睛按钮） */
+    send(text, S, P, hooks, opt) {
       text = String(text || '').trim();
       if (!text) return;
       const c = cfg(S), H = hooks || {};
@@ -294,7 +315,7 @@
       if (B) B.chatStart();
       if (H.start) H.start();
 
-      let reply = '', mood = '', step = 0, over = false, stopped = false, curReq = null;
+      let reply = '', mood = '', step = 0, over = false, stopped = false, curReq = null, looked = false;
       const done = [];
       const feed = tagParser((tag) => { mood = tag; P.emote(tag); if (H.mood) H.mood(tag); }, (s) => {
         s = clean(s); if (!s) return; reply += s;
@@ -342,7 +363,8 @@
         let stepText = '', calls = null;
         /* 做完事后接着说的话另起一行，不和前面那句粘在一起 */
         const split = thinkSplit(onThink, (s) => { if (!stepText && step && reply.trim()) feed('\n'); stepText += s; feed(s); });
-        const opt = { tools: tools && step < MAX_STEPS ? XH.tools.defs() : null, extra };
+        /* 眼睛按钮已经先看过了：这一轮不再给 look_screen，免得又截一次 */
+        const opt = { tools: tools && step < MAX_STEPS ? XH.tools.defs(looked ? { ...S, visionOn: false } : S) : null, extra };
         curReq = request(rc, messages, false, (k, t) => {
           if (k === 'delta') return split(t);
           if (k === 'think') return onThink(t);
@@ -369,6 +391,22 @@
         if (curReq) curReq(); // request 会回 cancel，但 stopped 已置位，这里直接收尾
         finish('cancel', '');
       };
+      /* 眼睛按钮：先看一眼屏幕，把看到的附在这句话后面（记录里只存你说的原话） */
+      if (opt && opt.look && XH.vision) {
+        const id = 'look_' + Date.now().toString(36);
+        if (H.tool) H.tool({ id, name: 'look_screen', label: '看屏幕…', state: 'run' });
+        XH.vision.look(S, text, (q) => (stopped || !H.confirm ? Promise.resolve(false) : H.confirm(q))).then((r) => {
+          if (stopped || over) return;
+          const label = r.ok ? '看了一眼屏幕' : r.why;
+          if (H.tool) H.tool({ id, name: 'look_screen', label, state: r.ok ? 'ok' : 'no' });
+          done.push({ n: label, ok: r.ok });
+          looked = true;
+          const u = messages[messages.length - 1];
+          u.content = text + (r.ok ? `\n\n（你刚看了一眼用户的屏幕，看到：${r.text}）` : `\n\n（你想看用户的屏幕但没看成：${r.why}）`);
+          turn();
+        });
+        return;
+      }
       turn();
     },
     /* 主动搭话：闲下来自己开一句；返回 false 表示当前不方便 */
@@ -377,27 +415,39 @@
       if (XH.scene && XH.scene.quiet && XH.scene.quiet()) return false;
       const c = cfg(S), B = XH.bubble;
       if (!c.base || !c.model || !B) return false;
-      const messages = [
-        { role: 'system', content: system(c, '') + '现在是你主动开口的时刻：没有人对你说话，你要自己找一句自然的话。可以顺着你记得的事、现在的时间或关心一下用户，但不要每次都提问，也不要重复以前说过的内容。只说一句 30 字以内的话，必须带情绪标签。' },
-        { role: 'user', content: '（安静中。你主动和用户说一句。不要提这条提示。）' },
-      ];
+      /* 偶尔先看一眼屏幕再开口：开了「偶尔主动看一眼」、之前同意过、30 分钟最多一次、一半概率 */
+      const V = XH.vision;
+      const wantLook = !!(S.visionOn && S.visionAuto && V && V.consented() && Date.now() - lastAutoLook > 30 * 60e3 && Math.random() < 0.5 && V.canLook(S).ok);
+      let aborted = false;
+      cancel = () => { aborted = true; cancel = null; B.hide(true); };
       P.wake();
       P.play('think', false, true, 1, { quiet: true, silent: true });
       B.chatStart();
-      let reply = '', mood = '';
-      const feed = tagParser((tag) => { mood = tag; P.emote(tag); }, (s) => { s = clean(s); if (!s) return; reply += s; B.append(s); });
-      const split = thinkSplit(() => {}, feed);
-      cancel = request(c, messages, false, (k, t) => {
-        if (k === 'delta') return split(t);
-        if (!FINAL[k]) return;
-        cancel = null;
-        if (k === 'done') {
-          reply = reply.trim();
-          if (!reply) { B.hide(true); return; }
-          B.chatEnd();
-          const l = loadLog(); l.push({ role: 'assistant', content: reply, mood, t: Date.now() }); saveLog(l);
-        } else B.hide(true);
-      }, 120);
+      const go = (seen) => {
+        if (aborted) return;
+        const lookLine = seen ? `\n你刚看了一眼用户的屏幕：${seen}\n可以顺着这个自然地搭句话，像朋友路过瞄了一眼那样；不要复述隐私内容。` : '';
+        const messages = [
+          { role: 'system', content: system(c, '') + lookLine + '现在是你主动开口的时刻：没有人对你说话，你要自己找一句自然的话。可以顺着你记得的事、现在的时间或关心一下用户，但不要每次都提问，也不要重复以前说过的内容。只说一句 30 字以内的话，必须带情绪标签。' },
+          { role: 'user', content: '（安静中。你主动和用户说一句。不要提这条提示。）' },
+        ];
+        let reply = '', mood = '';
+        const feed = tagParser((tag) => { mood = tag; P.emote(tag); }, (s) => { s = clean(s); if (!s) return; reply += s; B.append(s); });
+        const split = thinkSplit(() => {}, feed);
+        cancel = request(c, messages, false, (k, t) => {
+          if (k === 'delta') return split(t);
+          if (!FINAL[k]) return;
+          cancel = null;
+          if (k === 'done') {
+            reply = reply.trim();
+            if (!reply) { B.hide(true); return; }
+            B.chatEnd();
+            /* 看过屏幕就在记录里留个标签，你随时知道她看过 */
+            const l = loadLog(); l.push({ role: 'assistant', content: reply, mood, t: Date.now(), ...(seen ? { tools: [{ n: '看了一眼屏幕', ok: true }] } : {}) }); saveLog(l);
+          } else B.hide(true);
+        }, 120);
+      };
+      if (wantLook) { lastAutoLook = Date.now(); V.look(S, '', null, { silent: true }).then((r) => go(r.ok ? r.text : '')); }
+      else go('');
       return true;
     },
   };

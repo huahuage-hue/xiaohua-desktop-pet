@@ -100,6 +100,9 @@
     <button type="button" class="thinkBtn" id="think" title="深度思考：她会想得更久、更认真（再点一下关掉）" aria-label="深度思考" aria-pressed="false">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18h6M10 21h4"/><path d="M12 3a6 6 0 0 0-3.6 10.8c.6.5 1 1.2 1 2V16h5.2v-.2c0-.8.4-1.5 1-2A6 6 0 0 0 12 3Z"/></svg>
     </button>
+    <button type="button" class="thinkBtn" id="look" title="给她看看屏幕（会截一张图发给视觉模型）" aria-label="给她看看屏幕" hidden>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z"/><circle cx="12" cy="12" r="2.8"/></svg>
+    </button>
     <textarea id="input" rows="1" maxlength="300" placeholder="和小嬅说点什么…" title="Enter 发送，Shift+Enter 换行，Esc 关闭" aria-label="和小嬅说话"></textarea>
     <button type="submit" class="send" id="send">发送</button>
   </form>
@@ -228,6 +231,8 @@
     else if (m.k === 'delta') { startReply(); closeThink(); cur.querySelector('.body').textContent += m.text; scrollDown(); }
     else if (m.k === 'think' && m.text != null) { status.textContent = '正在认真想…'; addThink(m.text); }
     else if (m.k === 'think') paintThink(m.on);
+    else if (m.k === 'vision') $('look').hidden = !m.on;
+    else if (m.k === 'tip') { tip.hidden = false; tipText.textContent = m.text || ''; }
     else if (m.k === 'tool') {
       let d = tools.get(m.id);
       if (!d) {
@@ -259,6 +264,7 @@
     else if (m.k === 'sync') {
       scene = m.scene || '';
       paintThink(m.think);
+      $('look').hidden = !m.vision;
       render();
       setBusy(m.busy);
       if (m.busy) { startReply(m.partial || '', m.mood); }
@@ -289,6 +295,7 @@
   const thinkBtn = $('think');
   function paintThink(on) { thinkBtn.setAttribute('aria-pressed', String(!!on)); }
   thinkBtn.addEventListener('click', () => send({ type: 'think', on: thinkBtn.getAttribute('aria-pressed') !== 'true' }));
+  $('look').addEventListener('click', () => { if (busy) return; tip.hidden = true; send({ type: 'look', text: input.value.trim() }); input.value = ''; grow(); });
   $('close').addEventListener('click', hide);
   $('toBar').addEventListener('click', () => send({ type: 'bar' }));
   document.querySelectorAll('#quick [data-say]').forEach((b) => b.addEventListener('click', () => { if (!busy) say(b.dataset.say); }));

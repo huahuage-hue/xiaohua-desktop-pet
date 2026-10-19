@@ -29,7 +29,7 @@
     const P = XH.pet;
 
     /* 设置：localStorage 与控制面板窗口共享（同源），面板改动后通过 pet://settings 通知 */
-    const DEF = { idleFreq: 2, bubbles: true, follow: true, props: true, react: true, scale: 100, top: true, sfx: true, vol: 25, voice: true, swing: 2, outfit: 'classic', acc: {}, autoDress: true, festival: true, ...(XH.DEF_ASSIST || {}), ...(XH.DEF_SCENE || {}), ...((XH.chat && XH.chat.DEF_CHAT) || {}) };
+    const DEF = { idleFreq: 2, bubbles: true, follow: true, props: true, react: true, scale: 100, top: true, sfx: true, vol: 25, voice: true, swing: 2, outfit: 'classic', acc: {}, autoDress: true, festival: true, ...(XH.DEF_ASSIST || {}), ...(XH.DEF_SCENE || {}), ...((XH.chat && XH.chat.DEF_CHAT) || {}), ...(XH.DEF_VISION || {}) };
     /* sv：设置版本。v0.1.3 起默认音量 40 → 25；v0.3.0 去掉 roam，加 outfit / acc / autoDress；v0.5.0 加场景感知；v0.6.0 加聊天方式 chatMode */
     const load = () => {
       let s; try { s = JSON.parse(localStorage.getItem('xh-pet') || '{}'); } catch (_) { s = {}; }
@@ -103,7 +103,10 @@
       if (!what) return sc.quiet() ? '我先安静待着' : '';
       return '你在' + what + (sc.quiet() ? ' · 我会安静点' : '');
     };
-    const sync = () => toWin({ k: 'sync', busy: busyNow, partial, mood, scene: sceneLabel(), think: !!S.think, ask: curAsk });
+    const sync = () => toWin({ k: 'sync', busy: busyNow, partial, mood, scene: sceneLabel(), think: !!S.think, vision: !!S.visionOn, ask: curAsk });
+    /* 眼睛按钮只在打开了「看屏幕」时出现 */
+    const lookBtn = document.getElementById('cbLook');
+    const paintLook = () => { if (lookBtn) lookBtn.hidden = !S.visionOn; toWin({ k: 'vision', on: !!S.visionOn }); };
 
     /* ---------- 深度思考开关（输入栏 🧠 / 侧边窗同一个开关，存进设置） ---------- */
     const thinkBtn = document.getElementById('cbThink');
@@ -238,15 +241,21 @@
         if (k === 'done' && st.barOpen && !input.value && !document.hasFocus()) closeBar();
       },
     };
-    function chatSend(text) {
+    /* opt.look：先看一眼屏幕再回答 */
+    function chatSend(text, opt) {
       if (!XH.chat) return;
       text = String(text || '').trim(); if (!text) return;
       if (!chatReady()) return;
       lastSent = text;
       if (input) input.value = '';
       if (tip) tip.hidden = true;
-      XH.chat.send(text, S, P, H);
+      XH.chat.send(text, S, P, H, opt);
     }
+    const lookSend = (text) => {
+      const can = XH.vision ? XH.vision.canLook(S) : { ok: false, why: '看屏幕功能没加载' };
+      if (!can.ok) { showTip(can.why); toWin({ k: 'tip', text: can.why }); return; }
+      chatSend(String(text || '').trim() || '你看看我的屏幕', { look: true });
+    };
     if (bar) {
       bar.addEventListener('submit', (e) => { e.preventDefault(); chatSend(input.value); });
       input.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.preventDefault(); closeBar(); } });
@@ -256,6 +265,8 @@
       retry.addEventListener('click', () => { tip.hidden = true; chatSend(lastSent); });
       window.addEventListener('blur', () => { if (st.barOpen && !input.value && !busyNow) closeBar(); });
       if (thinkBtn) thinkBtn.addEventListener('click', () => setThink(!S.think));
+      if (lookBtn) lookBtn.addEventListener('click', () => { if (!busyNow) lookSend(input.value); });
+      paintLook();
       if (askBox) askBox.addEventListener('click', (e) => { const b = e.target.closest('[data-a]'); if (b) answerAsk(askBox.dataset.id, b.dataset.a === '1'); });
       paintThink();
     }
@@ -355,7 +366,7 @@
         if (XH.assist) XH.assist.changed(prev);
         if (XH.scene) { XH.scene.set(S); updateScene(); applyHide(); }
         if (!S.chatOn) closeAll();
-        paintThink(); toWin({ k: 'think', on: !!S.think });
+        paintThink(); toWin({ k: 'think', on: !!S.think }); paintLook();
       }
       else if (c.type === 'onboard') runOnboard(true);
       else if (c.type === 'chat') openChat();
@@ -368,6 +379,7 @@
       else if (c.type === 'chatwin' && !c.open) closeSide(true);
       else if (c.type === 'confirm') answerAsk(c.id, !!c.ok);
       else if (c.type === 'think') setThink(!!c.on);
+      else if (c.type === 'look' && !busyNow) lookSend(c.text);
       else if (c.type === 'time' && XH.assist) XH.assist.sayTime();
       else if (c.type === 'weather' && XH.assist) XH.assist.sayWeather(true);
       else if (c.type === 'chime' && XH.assist) XH.assist.testChime(c.h | 0);

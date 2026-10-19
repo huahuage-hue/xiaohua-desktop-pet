@@ -1,6 +1,6 @@
 /* 小嬅桌宠 · 帮你做事（v0.6.0）
    - 给模型的工具定义（OpenAI tools 格式）+ 本地执行
-   - 只做安全动作：报时 / 天气 / 提醒 / 便签 / 打开网页 / 浏览器搜索 / 打开开始菜单里的程序 / 读写剪贴板
+   - 只做安全动作：报时 / 天气 / 提醒 / 便签 / 打开网页 / 浏览器搜索 / 打开开始菜单里的程序 / 读写剪贴板 / 看屏幕（vision.js）
    - 会动到电脑或把内容发出去的动作，执行前先问用户（ctx.confirm），不同意就不做
    - 提醒存 localStorage['xh-reminders']，便签存 localStorage['xh-notes']，重启不丢 */
 (function () {
@@ -37,8 +37,12 @@
     fn('read_clipboard', '读取用户剪贴板里的文字（会先问用户）'),
     fn('write_clipboard', '把一段文字复制到用户的剪贴板（会先问用户）', { text: { type: 'string', description: '要复制的文字' } }, ['text']),
   ];
+  /* 看屏幕：只在面板里打开了「让她能看屏幕」时才给模型 */
+  const LOOK = fn('look_screen', '看一眼用户现在的电脑屏幕，返回屏幕内容的文字描述。只在用户让你看屏幕、帮忙看报错或问屏幕上的东西时用', {
+    question: { type: 'string', description: '用户想从屏幕上知道什么（可空）' },
+  });
   /* 侧边窗 / 气泡里显示用的动作名 */
-  const NAME = { get_time: '看时间', get_weather: '查天气', set_reminder: '设提醒', list_reminders: '看提醒', cancel_reminder: '取消提醒', take_note: '记便签', list_notes: '看便签', open_url: '打开网页', web_search: '搜索', open_app: '打开程序', read_clipboard: '看剪贴板', write_clipboard: '复制到剪贴板' };
+  const NAME = { get_time: '看时间', get_weather: '查天气', set_reminder: '设提醒', list_reminders: '看提醒', cancel_reminder: '取消提醒', take_note: '记便签', list_notes: '看便签', open_url: '打开网页', web_search: '搜索', open_app: '打开程序', read_clipboard: '看剪贴板', write_clipboard: '复制到剪贴板', look_screen: '看屏幕' };
 
   /* ---------- 提醒 ---------- */
   const R = { P: null, timer: 0 };
@@ -157,6 +161,12 @@
         if (invoke) await invoke('agent_clip_set', { text }); else await navigator.clipboard.writeText(text);
         return ok('已复制到剪贴板。', '复制好了 · ' + clip(text, 16));
       }
+      case 'look_screen': {
+        if (!XH.vision) return no('看屏幕功能没加载。');
+        const r = await XH.vision.look(S, a.question, ctx.confirm);
+        if (!r.ok) return no('没看成屏幕：' + r.why, r.why);
+        return ok(`屏幕上（${r.proc || '前台程序'}）：${r.text}`, '看了一眼屏幕');
+      }
       default:
         return no('没有这个工具：' + name);
     }
@@ -164,7 +174,7 @@
 
   XH.tools = {
     DEFS, NAME,
-    defs: () => DEFS,
+    defs: (S) => (S && S.visionOn ? DEFS.concat(LOOK) : DEFS),
     /* call = {id, name, arguments(JSON 字符串)}；ctx = {S, confirm(text) → Promise<bool>}；返回 {ok, content(给模型), label(给人看)} */
     async run(call, ctx) {
       let a = {};

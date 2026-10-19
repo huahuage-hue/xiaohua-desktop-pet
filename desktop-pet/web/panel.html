@@ -354,7 +354,24 @@
     <div class="row sub" data-dep="sceneOn"><label for="hideFull">全屏时自动躲起来<small>退出全屏后自动回来</small></label><input class="sw" type="checkbox" id="hideFull" data-k="hideFull"></div>
     <div class="field" data-dep="sceneOn"><span>黑名单</span><input class="t" id="sceneBlock" placeholder="进程名片段，逗号分隔" spellcheck="false"></div>
     <p class="note" id="sceneNow" role="status" aria-live="polite">当前：等待读取前台窗口…</p>
-    <p class="note">会议、游戏、密码 / 银行类应用和全屏时会自动安静；不截图、不读内容、不写盘。</p>
+    <p class="note">会议、游戏、密码 / 银行类应用和全屏时会自动安静；场景感知本身不截图、不读内容、不写盘（看屏幕在下面单独开关）。</p>
+  </section>
+  <section aria-labelledby="h-vision">
+    <h2 id="h-vision">看屏幕<small style="font-weight:400; margin-left:6px">截图只在内存里，看完就丢</small></h2>
+    <div class="row"><label for="visionOn">让她能看屏幕<small>你让她看、或点聊天栏的眼睛时才截图；微信、密码管理器、网银等隐私应用和黑名单里的程序永远不截</small></label><input class="sw" type="checkbox" id="visionOn" data-k="visionOn"></div>
+    <div class="row sub" data-dep="visionOn"><label for="visionAuto">偶尔主动看一眼<small>主动搭话前偶尔先看看你在做什么（最多 30 分钟一次），聊天记录里会标出来</small></label><input class="sw" type="checkbox" id="visionAuto" data-k="visionAuto"></div>
+    <div class="field" data-dep="visionOn"><span>视觉服务</span><select id="visionProvider" aria-label="视觉服务"></select></div>
+    <div class="field" id="vBaseRow" data-dep="visionOn"><span>接口地址</span><input class="t" id="visionBase" placeholder="https://…/v1" spellcheck="false"></div>
+    <div class="field" data-dep="visionOn"><span>视觉模型</span><input class="t" id="visionModel" spellcheck="false"></div>
+    <div class="field" id="vKeyRow" data-dep="visionOn"><span>密钥</span>
+      <form class="inline" id="vKeyF" autocomplete="off">
+        <input class="t" id="vKey" type="password" placeholder="和聊天同一家就不用再填" spellcheck="false" aria-label="视觉服务密钥">
+        <button type="submit">保存</button>
+      </form>
+    </div>
+    <p class="note" id="vKeyNote"></p>
+    <div class="actions" style="margin-top: 6px" data-dep="visionOn"><button id="vTest">看一眼试试</button><button id="vReset">重新征求同意</button></div>
+    <p class="note" id="vTestNote" role="status" aria-live="polite"></p>
   </section>
   <section aria-labelledby="h-mem">
     <h2 id="h-mem">记忆<small style="font-weight:400; margin-left:6px">分条整理，只存在本机</small></h2>
@@ -453,13 +470,14 @@
 <script src="memory.js"></script>
 <script src="tools.js"></script>
 <script src="chat.js"></script>
+<script src="vision.js"></script>
 <script src="scene.js"></script>
 <script>
 (function () {
   'use strict';
   const T = window.__TAURI__, invoke = T ? T.core.invoke : null;
   const $ = (id) => document.getElementById(id);
-  const DEF = { idleFreq: 2, bubbles: true, follow: true, props: true, react: true, scale: 100, top: true, sfx: true, vol: 25, voice: true, swing: 2, outfit: 'classic', acc: {}, autoDress: true, festival: true, ...XH.DEF_ASSIST, ...XH.DEF_SCENE, ...XH.chat.DEF_CHAT };
+  const DEF = { idleFreq: 2, bubbles: true, follow: true, props: true, react: true, scale: 100, top: true, sfx: true, vol: 25, voice: true, swing: 2, outfit: 'classic', acc: {}, autoDress: true, festival: true, ...XH.DEF_ASSIST, ...XH.DEF_SCENE, ...XH.chat.DEF_CHAT, ...XH.DEF_VISION };
   /* sv：设置版本。v0.1.3 起默认音量 40 → 25；v0.3.0 去掉漫游，加换装；v0.5.0 加场景感知；v0.6.0 加聊天方式 chatMode */
   const load = () => {
     let s; try { s = JSON.parse(localStorage.getItem('xh-pet') || '{}'); } catch (_) { s = {}; }
@@ -685,6 +703,41 @@
     try { const s = JSON.parse(e.newValue || '{}'); if ('think' in s && !!s.think !== !!S.think) { S.think = !!s.think; $('think').checked = S.think; paintDeps(); } } catch (_) { /* 无所谓 */ }
   });
   setInterval(paintTodo, 30000); // 到点的提醒会被拿掉
+
+  /* ---------- 看屏幕：视觉服务单独选；密钥按服务商存，和聊天同一家就共用 ---------- */
+  const vprov = $('visionProvider'), VP = XH.vision.VP;
+  Object.keys(VP).forEach((k) => vprov.add(new Option(VP[k].note, k)));
+  const pname = (k) => (PV[k] ? PV[k].name : k);
+  const paintVision = () => {
+    const k = S.visionProvider in VP ? S.visionProvider : 'zhipu';
+    vprov.value = k;
+    $('vBaseRow').style.display = k === 'custom' ? '' : 'none';
+    $('visionBase').value = S.visionBase || '';
+    $('visionModel').value = S.visionModel || '';
+    $('visionModel').placeholder = VP[k].model || '模型名';
+    const nokey = PV[k] && PV[k].nokey, n = $('vKeyNote');
+    $('vKeyRow').style.display = nokey ? 'none' : '';
+    if (nokey) { n.textContent = '本地 Ollama 不需要密钥。'; return; }
+    keyStore.info(k).then((i) => {
+      n.textContent = (i && i.set ? `已保存${pname(k)}的密钥（末 4 位 ${i.tail}）。` : `还没有${pname(k)}的密钥。`) + (k === S.provider ? '和聊天共用同一个。' : '');
+    }).catch(() => { n.textContent = ''; });
+  };
+  paintVision();
+  vprov.addEventListener('change', () => { S.visionProvider = vprov.value; S.visionModel = ''; S.visionBase = ''; save(); paintVision(); });
+  $('visionBase').addEventListener('change', () => { S.visionBase = $('visionBase').value.trim(); save(); });
+  $('visionModel').addEventListener('change', () => { S.visionModel = $('visionModel').value.trim(); save(); });
+  $('vKeyF').addEventListener('submit', (e) => {
+    e.preventDefault();
+    keyStore.set(S.visionProvider, $('vKey').value.trim()).then(() => { $('vKey').value = ''; paintVision(); if (S.visionProvider === S.provider) paintProv(); })
+      .catch((er) => { $('vKeyNote').textContent = '保存失败：' + er; });
+  });
+  $('vTest').addEventListener('click', async () => {
+    const note = $('vTestNote');
+    note.textContent = '正在看…（截的是面板后面你正在用的那个窗口所在的屏幕）';
+    const r = await XH.vision.look(S, '', (q) => Promise.resolve(window.confirm(q)));
+    note.textContent = r.ok ? '她看到：' + r.text : '没看成：' + r.why;
+  });
+  $('vReset').addEventListener('click', () => { XH.vision.resetConsent(); $('vTestNote').textContent = '好，下次看屏幕之前会再问你一次。'; });
   $('keyF').addEventListener('submit', (e) => {
     e.preventDefault();
     keyStore.set(S.provider, $('key').value.trim()).then((i) => { $('key').value = ''; paintKey(i); }).catch((er) => { $('keyNote').textContent = '保存失败：' + er; });

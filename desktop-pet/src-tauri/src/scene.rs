@@ -17,12 +17,54 @@ pub struct SceneInfo {
     pub full: bool,
 }
 
+/// 进程 id → 可执行文件名（如 Code.exe）；读不到返回空串
+#[cfg(windows)]
+pub(crate) fn proc_name(pid: u32) -> String {
+    use windows_sys::Win32::Foundation::CloseHandle;
+    use windows_sys::Win32::System::Threading::{OpenProcess, QueryFullProcessImageNameW, PROCESS_QUERY_LIMITED_INFORMATION};
+    if pid == 0 {
+        return String::new();
+    }
+    unsafe {
+        let h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+        if h.is_null() {
+            return String::new();
+        }
+        let mut pbuf = vec![0u16; 1024];
+        let mut plen = pbuf.len() as u32;
+        let ok = QueryFullProcessImageNameW(h, 0, pbuf.as_mut_ptr(), &mut plen);
+        let _ = CloseHandle(h);
+        if ok == 0 || plen == 0 {
+            return String::new();
+        }
+        let path = String::from_utf16_lossy(&pbuf[..plen as usize]);
+        path.rsplit(['\\', '/']).next().unwrap_or("").to_string()
+    }
+}
+
+/// 窗口标题（最多 200 字）
+#[cfg(windows)]
+pub(crate) fn window_title(hwnd: windows_sys::Win32::Foundation::HWND) -> String {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{GetWindowTextLengthW, GetWindowTextW};
+    unsafe {
+        let len = GetWindowTextLengthW(hwnd);
+        if len <= 0 {
+            return String::new();
+        }
+        let mut buf = vec![0u16; len as usize + 1];
+        let n = GetWindowTextW(hwnd, buf.as_mut_ptr(), buf.len() as i32);
+        if n <= 0 {
+            return String::new();
+        }
+        String::from_utf16_lossy(&buf[..n as usize]).chars().take(200).collect()
+    }
+}
+
 #[cfg(windows)]
 fn read_foreground() -> SceneInfo {
-    use windows_sys::Win32::Foundation::{CloseHandle, RECT};
+    use windows_sys::Win32::Foundation::RECT;
     use windows_sys::Win32::Graphics::Gdi::{GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST};
-    use windows_sys::Win32::System::Threading::{OpenProcess, QueryFullProcessImageNameW, PROCESS_QUERY_LIMITED_INFORMATION};
-    use windows_sys::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowRect, GetWindowTextLengthW, GetWindowTextW, GetWindowThreadProcessId};
+    use windows_sys::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowRect, GetWindowThreadProcessId};
 
     let mut out = SceneInfo::default();
     unsafe {
@@ -30,29 +72,10 @@ fn read_foreground() -> SceneInfo {
         if hwnd.is_null() {
             return out;
         }
-        let len = GetWindowTextLengthW(hwnd);
-        if len > 0 {
-            let mut buf = vec![0u16; len as usize + 1];
-            let n = GetWindowTextW(hwnd, buf.as_mut_ptr(), buf.len() as i32);
-            if n > 0 {
-                out.title = String::from_utf16_lossy(&buf[..n as usize]).chars().take(200).collect();
-            }
-        }
+        out.title = window_title(hwnd);
         let mut pid = 0u32;
         GetWindowThreadProcessId(hwnd, &mut pid);
-        if pid != 0 {
-            let h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
-            if !h.is_null() {
-                let mut pbuf = vec![0u16; 1024];
-                let mut plen = pbuf.len() as u32;
-                let ok = QueryFullProcessImageNameW(h, 0, pbuf.as_mut_ptr(), &mut plen);
-                let _ = CloseHandle(h);
-                if ok != 0 && plen > 0 {
-                    let path = String::from_utf16_lossy(&pbuf[..plen as usize]);
-                    out.proc = path.rsplit(['\\', '/']).next().unwrap_or("").to_string();
-                }
-            }
-        }
+        out.proc = proc_name(pid);
         let mut wr = RECT { left: 0, top: 0, right: 0, bottom: 0 };
         if GetWindowRect(hwnd, &mut wr) != 0 {
             let mon = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
