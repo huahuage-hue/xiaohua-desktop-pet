@@ -1,16 +1,14 @@
 // 看屏幕（v0.6.0）：截你正在用的那个程序所在的显示器 → 缩到最长边 1280 → JPEG → base64
-// - 只在内存里，不写盘；截图时把小嬅自己的窗口（桌宠 / 聊天窗 / 面板）排除在画面外
+// - 只在内存里，不写盘；不碰任何窗口（小嬅自己的窗口可能在画面里，提示词里让视觉模型忽略）
 // - 前台是小嬅自己的窗口时（你在聊天窗里打字），往下找你真正在用的那个窗口
 // - 隐私硬闸：密码管理器 / 微信 / QQ / Telegram / 标题像网银支付无痕的窗口 / 面板黑名单，一律不截（网页端也会先判断一次）
 use serde::Serialize;
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
 
 const PRIVATE_PROC: &[&str] = &[
     "1password", "keepass", "bitwarden", "lastpass", "dashlane", "enpass", "authenticator", "wechat", "weixin", "qq.exe", "telegram",
 ];
 const PRIVATE_TITLE: &[&str] = &["银行", "网银", "密码", "支付", "账单", "无痕", "隐私", "incognito", "private browsing"];
-/// 截图时临时把自己的窗口排除出画面，等 DWM 合成下一帧
-const SETTLE_MS: u64 = 150;
 
 #[derive(Serialize)]
 pub struct Shot {
@@ -33,7 +31,7 @@ fn capture(_: &AppHandle, _: &[String]) -> Result<Shot, String> {
 }
 
 #[cfg(windows)]
-fn capture(app: &AppHandle, block: &[String]) -> Result<Shot, String> {
+fn capture(_app: &AppHandle, block: &[String]) -> Result<Shot, String> {
     let (target, proc, title) = find_target();
     let p = proc.to_lowercase();
     let t = title.to_lowercase();
@@ -41,35 +39,10 @@ fn capture(app: &AppHandle, block: &[String]) -> Result<Shot, String> {
     if PRIVATE_PROC.iter().any(|x| p.contains(x)) || PRIVATE_TITLE.iter().any(|x| t.contains(x)) || blocked {
         return Err("__PRIVATE__".into());
     }
-    let own: Vec<isize> = ["main", "chat", "panel"]
-        .iter()
-        .filter_map(|l| app.get_webview_window(l))
-        .filter_map(|w| w.hwnd().ok())
-        .map(|h| h.0 as isize)
-        .collect();
-    set_affinity(app, &own, true);
-    std::thread::sleep(std::time::Duration::from_millis(SETTLE_MS));
-    let r = grab(target);
-    set_affinity(app, &own, false);
-    let (w, h, rgb) = r?;
+    /* 不再动小嬅自己窗口的显示属性（v0.6 测试版用 WDA_EXCLUDEFROMCAPTURE 时，用户那边会冒出空白面板）：
+       她的窗口可能出现在截图里，由视觉提示词让模型忽略 */
+    let (w, h, rgb) = grab(target)?;
     encode(w, h, rgb, proc)
-}
-
-/// WDA_EXCLUDEFROMCAPTURE（Win10 2004+）：窗口照常显示，但不进截图。放到主线程里做，做完再返回
-#[cfg(windows)]
-fn set_affinity(app: &AppHandle, hwnds: &[isize], exclude: bool) {
-    use windows_sys::Win32::UI::WindowsAndMessaging::SetWindowDisplayAffinity;
-    let list = hwnds.to_vec();
-    let (tx, rx) = std::sync::mpsc::channel();
-    let ok = app.run_on_main_thread(move || {
-        for h in &list {
-            unsafe { SetWindowDisplayAffinity(*h as _, if exclude { 0x11 } else { 0 }) };
-        }
-        let _ = tx.send(());
-    });
-    if ok.is_ok() {
-        let _ = rx.recv_timeout(std::time::Duration::from_millis(500));
-    }
 }
 
 /// 你正在用的窗口：前台窗口；前台是小嬅自己的就沿 Z 序往下找第一个看得见的普通窗口
