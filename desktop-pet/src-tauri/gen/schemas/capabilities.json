@@ -1,1 +1,1 @@
-{"default":{"identifier":"default","description":"桌宠主窗口：事件监听 + 自定义命令（set_passthrough / start_drag 为应用自身命令，无需额外权限）","local":true,"windows":["main","panel"],"permissions":["core:default","window-state:default"]}}
+{"default":{"identifier":"default","description":"桌宠主窗口：事件监听 + 自定义命令（set_passthrough / start_drag 为应用自身命令，无需额外权限）","local":true,"windows":["main","panel","chat"],"permissions":["core:default","window-state:default"]}}

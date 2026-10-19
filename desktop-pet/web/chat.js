@@ -2,7 +2,7 @@
    - 兼容 OpenAI /chat/completions 流式接口；Tauri 里由 Rust 发请求（密钥只在 Rust 那边），普通浏览器调试时直接 fetch
    - 模型回复以 [情绪] 开头 → 播对应动作，标签不显示
    - 记忆 v2：profile / facts / events / promises 存在 localStorage（memory.js），每 3 轮后台抽一次
-   - 界面：桌宠对话卡（hooks.card）或头顶气泡（默认） */
+   - 界面：回复总是走头顶气泡（hooks.card 为真时除外，v0.6.0 起不再使用）；hooks 另把进度转给漫画输入栏 / 侧边聊天窗 */
 (function () {
   'use strict';
   window.XH = window.XH || {};
@@ -17,7 +17,8 @@
     ollama: { name: '本地 Ollama', base: 'http://127.0.0.1:11434/v1', model: 'qwen2.5:7b', nokey: true },
     custom: { name: '自定义', base: '', model: '' },
   };
-  const DEF_CHAT = { chatOn: false, provider: 'deepseek', base: '', model: '', persona: 'self', len: 's', nickname: '', proactive: 2 };
+  /* chatMode（v0.6.0）：双击她时打开 comic 漫画输入栏 / side 侧边聊天窗 */
+  const DEF_CHAT = { chatOn: false, provider: 'deepseek', base: '', model: '', persona: 'self', len: 's', nickname: '', proactive: 2, chatMode: 'comic' };
   const TAGS = ['开心', '害羞', '生气', '困', '思考', '惊讶', '疑惑', '难过', '点头', '打招呼', '挥手', '得意', '无聊', '星星眼', '嘟嘴', '猫嘴'];
   const LOG_KEY = 'xh-chat-log', MAX_TURNS = 10;
 

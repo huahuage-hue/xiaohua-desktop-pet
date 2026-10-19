@@ -23,7 +23,7 @@ pub fn sync_autostart_menu(app: &AppHandle, on: bool) {
     }
 }
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -39,6 +39,15 @@ const BASE_W: f64 = 300.0;
 const BASE_H: f64 = 610.0;
 /// 贴边吸附距离（逻辑像素）
 const SNAP: f64 = 40.0;
+/// 所有 WebView 窗口必须用完全相同的参数（共用同一个 WebView2 环境），也要和 tauri.conf.json 主窗口一致
+const BROWSER_ARGS: &str = "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --autoplay-policy=no-user-gesture-required";
+/// 侧边聊天窗（v0.6.0）默认大小（逻辑像素）
+const CHAT_W: f64 = 340.0;
+const CHAT_H: f64 = 520.0;
+/// 聊天窗压进桌宠窗口的宽度（逻辑像素）：桌宠窗口两边是透明留白，贴紧一点更像在她身边
+const CHAT_OVERLAP: f64 = 28.0;
+/// 聊天窗在她哪一侧：0 未定 / 1 左 / 2 右（带回差，拖过屏幕中线一点才换边）
+static CHAT_SIDE: AtomicU8 = AtomicU8::new(0);
 /// 藏起时露在屏幕内的比例
 const SHOW_RATIO: f64 = 0.6;
 /// 自己走动：速度（逻辑像素/秒）与节奏（秒）
@@ -201,11 +210,16 @@ fn spawn_poll(app: AppHandle, pet: Arc<Pet>) {
             std::thread::sleep(Duration::from_millis(30));
             let Some(win) = app.get_webview_window("main") else { continue };
             if !win.is_visible().unwrap_or(false) {
+                /* 她被藏起来了（托盘隐藏 / 全屏躲起来）：聊天窗也一起收起 */
+                if app.get_webview_window("chat").is_some_and(|c| c.is_visible().unwrap_or(false)) {
+                    hide_chat(&app);
+                }
                 continue;
             }
             let (Ok(cur), Ok(pos), Ok(size)) = (win.cursor_position(), win.outer_position(), win.outer_size()) else {
                 continue;
             };
+            dock_chat(&app, &win);
             let (rx, ry) = (cur.x - pos.x as f64, cur.y - pos.y as f64);
             let inside = rx >= 0.0 && ry >= 0.0 && rx < size.width as f64 && ry < size.height as f64;
             let key = (rx.round() as i32, ry.round() as i32, inside);
@@ -273,7 +287,7 @@ fn show_panel(app: &AppHandle) -> tauri::Result<()> {
         .always_on_top(true)
         .focused(true)
         /* 必须和 tauri.conf.json 里主窗口的 additionalBrowserArgs 完全一致（共用同一个 WebView2 环境） */
-        .additional_browser_args("--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --autoplay-policy=no-user-gesture-required");
+        .additional_browser_args(BROWSER_ARGS);
     /* 放在桌宠旁边：桌宠在屏幕右半边就放左侧，否则放右侧 */
     if let Some(pet) = app.get_webview_window("main") {
         if let (Ok(pos), Ok(size), Some((ax, ay, aw, ah))) = (pet.outer_position(), pet.outer_size(), work_area(&pet)) {
@@ -294,6 +308,107 @@ fn show_panel(app: &AppHandle) -> tauri::Result<()> {
         }
     });
     Ok(())
+}
+
+/// 侧边聊天窗该放的位置（物理像素）：她在屏幕右半边就放左侧，否则放右侧；那一侧放不下就换边；底边对齐她脚边
+fn chat_target(pet: &WebviewWindow, chat: &WebviewWindow) -> Option<PhysicalPosition<i32>> {
+    let (pos, size, csize) = (pet.outer_position().ok()?, pet.outer_size().ok()?, chat.outer_size().ok()?);
+    let (ax, ay, aw, ah) = work_area(pet)?;
+    let sf = pet.scale_factor().unwrap_or(1.0);
+    let (w, h, cw, ch) = (size.width as i32, size.height as i32, csize.width as i32, csize.height as i32);
+    let ov = (CHAT_OVERLAP * sf) as i32;
+    let (cx, mid, hyst) = (pos.x + w / 2, ax + aw / 2, (60.0 * sf) as i32);
+    let mut side = CHAT_SIDE.load(Ordering::Relaxed);
+    if side == 0 {
+        side = if cx > mid { 1 } else { 2 };
+    } else if side == 1 && cx < mid - hyst {
+        side = 2;
+    } else if side == 2 && cx > mid + hyst {
+        side = 1;
+    }
+    let (left_x, right_x) = (pos.x - cw + ov, pos.x + w - ov);
+    if side == 1 && left_x < ax && right_x + cw <= ax + aw {
+        side = 2;
+    } else if side == 2 && right_x + cw > ax + aw && left_x >= ax {
+        side = 1;
+    }
+    CHAT_SIDE.store(side, Ordering::Relaxed);
+    let x = if side == 1 { left_x } else { right_x }.max(ax).min(ax + aw - cw);
+    let y = (pos.y + h - ch - (12.0 * sf) as i32).max(ay).min(ay + ah - ch);
+    Some(PhysicalPosition::new(x, y))
+}
+
+/// 轮询里调用：聊天窗开着就跟着她（拖动、贴边、缩放后都会对齐）
+fn dock_chat(app: &AppHandle, pet: &WebviewWindow) {
+    let Some(c) = app.get_webview_window("chat") else { return };
+    if !c.is_visible().unwrap_or(false) {
+        return;
+    }
+    if let (Some(t), Ok(p)) = (chat_target(pet, &c), c.outer_position()) {
+        if t != p {
+            let _ = c.set_position(t);
+        }
+    }
+}
+
+/// 收起聊天窗（只隐藏不销毁），并告诉桌宠窗口
+fn hide_chat(app: &AppHandle) {
+    if let Some(c) = app.get_webview_window("chat") {
+        let _ = c.hide();
+    }
+    let _ = app.emit_to("main", "pet://cmd", serde_json::json!({ "type": "chatwin", "open": false }));
+}
+
+fn show_chat(app: &AppHandle) -> tauri::Result<()> {
+    let c = match app.get_webview_window("chat") {
+        Some(c) => c,
+        None => {
+            let c = tauri::WebviewWindowBuilder::new(app, "chat", tauri::WebviewUrl::App("chatwin.html".into()))
+                .title("和小嬅聊天")
+                .inner_size(CHAT_W, CHAT_H)
+                .min_inner_size(280.0, 360.0)
+                .decorations(false)
+                .resizable(true)
+                .maximizable(false)
+                .minimizable(false)
+                .always_on_top(true)
+                .skip_taskbar(true)
+                .shadow(true)
+                .visible(false)
+                .focused(true)
+                .additional_browser_args(BROWSER_ARGS)
+                .build()?;
+            let h = app.clone();
+            c.on_window_event(move |e| {
+                if let tauri::WindowEvent::CloseRequested { api, .. } = e {
+                    api.prevent_close();
+                    hide_chat(&h);
+                }
+            });
+            c
+        }
+    };
+    CHAT_SIDE.store(0, Ordering::Relaxed);
+    if let Some(p) = app.get_webview_window("main") {
+        if let Some(t) = chat_target(&p, &c) {
+            c.set_position(t)?;
+        }
+    }
+    c.show()?;
+    c.unminimize()?;
+    c.set_focus()?;
+    Ok(())
+}
+
+/// 和面板一样必须是 async（同步命令里建 WebView 会死锁）
+#[tauri::command]
+async fn chatwin_open(app: AppHandle) -> Result<(), String> {
+    show_chat(&app).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn chatwin_hide(app: AppHandle) {
+    hide_chat(&app);
 }
 
 /// 注意：Windows 上在同步命令 / 事件回调里创建 WebView 窗口会死锁（WebView2 限制），
@@ -382,6 +497,7 @@ fn main() {
         .manage(AutoItem(Mutex::new(None)))
         .invoke_handler(tauri::generate_handler![
             set_passthrough, start_drag, open_panel, set_scale, set_top, move_home, toggle_pet, pet_show, quit_app, pet_focus,
+            chatwin_open, chatwin_hide,
             autostart::autostart_get, autostart::autostart_set, autostart::launched_autostart,
             chat::chat_send, chat::chat_cancel, chat::chat_key_set, chat::chat_key_info,
             scene::scene_now, scene::scene_watch

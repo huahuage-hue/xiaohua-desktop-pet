@@ -315,6 +315,10 @@
       </div>
       <p class="note" id="keyNote"></p>
       <div class="row">
+        <span>双击她时<small>漫画对白：头顶气泡 + 脚边输入栏；聊天窗：贴在她旁边，看完整记录</small></span>
+        <div class="seg" role="group" aria-label="双击打开的聊天方式" id="chatMode"><button data-v="comic">漫画对白</button><button data-v="side">聊天窗</button></div>
+      </div>
+      <div class="row">
         <span>说话风格</span>
         <div class="seg" role="group" aria-label="说话风格" id="persona"><button data-v="self">小嬅本色</button><button data-v="plain">简洁助手</button></div>
       </div>
@@ -439,7 +443,7 @@
   const T = window.__TAURI__, invoke = T ? T.core.invoke : null;
   const $ = (id) => document.getElementById(id);
   const DEF = { idleFreq: 2, bubbles: true, follow: true, props: true, react: true, scale: 100, top: true, sfx: true, vol: 25, voice: true, swing: 2, outfit: 'classic', acc: {}, autoDress: true, festival: true, ...XH.DEF_ASSIST, ...XH.DEF_SCENE, ...XH.chat.DEF_CHAT };
-  /* sv：设置版本。v0.1.3 起默认音量 40 → 25；v0.3.0 去掉漫游，加换装；v0.5.0 加场景感知 */
+  /* sv：设置版本。v0.1.3 起默认音量 40 → 25；v0.3.0 去掉漫游，加换装；v0.5.0 加场景感知；v0.6.0 加聊天方式 chatMode */
   const load = () => {
     let s; try { s = JSON.parse(localStorage.getItem('xh-pet') || '{}'); } catch (_) { s = {}; }
     if (!s.sv) { if (s.vol === 40) s.vol = 25; s.sv = 2; }
@@ -447,6 +451,7 @@
     if (s.sv < 4) { if (s.outfit == null) s.outfit = 'classic'; if (!s.acc) s.acc = {}; if (s.autoDress == null) s.autoDress = true; delete s.roam; s.sv = 4; }
     if (s.sv < 5) { if (s.festival == null) s.festival = true; s.sv = 5; }
     if (s.sv < 6) { if (s.sceneOn == null) s.sceneOn = true; if (s.sceneTitle == null) s.sceneTitle = false; if (s.quietFull == null) s.quietFull = true; if (s.hideFull == null) s.hideFull = false; if (s.sceneBlock == null) s.sceneBlock = ''; s.sv = 6; }
+    if (s.sv < 7) { if (s.chatMode == null) s.chatMode = 'comic'; s.sv = 7; }
     return { ...DEF, ...s };
   };
   let S = load();
@@ -482,7 +487,7 @@
     el.addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b) return; S[key] = num ? +b.dataset.v : b.dataset.v; paint(); save(); });
     paint();
   };
-  seg('freq', 'idleFreq', true); seg('swing', 'swing', true); seg('remindMin', 'remindMin', true); seg('persona', 'persona'); seg('len', 'len'); seg('proactive', 'proactive', true);
+  seg('freq', 'idleFreq', true); seg('swing', 'swing', true); seg('remindMin', 'remindMin', true); seg('persona', 'persona'); seg('len', 'len'); seg('chatMode', 'chatMode'); seg('proactive', 'proactive', true);
 
   document.querySelectorAll('input[data-k]').forEach((el) => {
     el.checked = !!S[el.dataset.k];

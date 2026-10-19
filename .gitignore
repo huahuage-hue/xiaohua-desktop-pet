@@ -5,6 +5,9 @@ desktop-pet/web/assets/
 dist/
 *.zip
 
+# 本机工具配置（含会话临时路径）
+.claude/
+
 # PSD 源文件很大，只跟踪说明和图层表
 psd/*
 !psd/图层说明.md
