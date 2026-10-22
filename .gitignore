@@ -12,3 +12,7 @@ dist/
 psd/*
 !psd/图层说明.md
 !psd/layers.json
+
+# 视频素材（体积过大，不入库）
+video/
+video_bak_20261020/
