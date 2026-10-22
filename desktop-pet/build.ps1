@@ -89,7 +89,7 @@ Copy-Item $setup (Join-Path $OutDir '安装包') -Force
 $note = Join-Path $here '使用说明.txt'
 if (Test-Path $note) { Copy-Item $note $OutDir -Force }
 
-# 5. 自动更新发布文件：安装包换成英文名（Gitee 附件不认中文名），配 latest.json
+# 5. 自动更新发布文件：安装包换成英文名（附件名用英文更稳），配 latest.json
 if ($Release) {
   Step '生成自动更新发布文件'
   $sig = "$setup.sig"
