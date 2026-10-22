@@ -2,10 +2,10 @@
 # 用法：右键“使用 PowerShell 运行”，或在 desktop-pet 目录执行：  powershell -ExecutionPolicy Bypass -File build.ps1
 # 参数：-Dev 以开发模式运行（不打包，改网页后刷新即可）；-SkipInstall 跳过环境检查；-NoOpen 构建完不打开资源管理器
 #       -Release 额外生成自动更新要发布的文件（OutDir\发布\v版本\：安装包 + latest.json + 发布说明.txt）
-#       -UpdateBase GitHub 发行版下载地址前缀；-Notes 更新说明（显示在面板「更新」里）
+#       -UpdateBase 下载地址前缀（默认走 gh-proxy 镜像，国内直连 GitHub Releases 常被墙）；-Notes 更新说明（显示在面板「更新」里）
 # v0.6.0 起安装包必须用更新签名私钥签名（默认 %USERPROFILE%\.tauri\xiaohua-updater.key，不要放进源码目录）
 param([switch]$Dev, [switch]$SkipInstall, [switch]$NoOpen, [switch]$Release, [string]$OutDir = 'D:\小嬅桌宠',
-  [string]$UpdateBase = 'https://github.com/huahuage-hue/xiaohua-desktop-pet/releases/download',
+  [string]$UpdateBase = 'https://gh-proxy.com/https://github.com/huahuage-hue/xiaohua-desktop-pet/releases/download',
   [string]$Notes = '', [string]$Key = "$env:USERPROFILE\.tauri\xiaohua-updater.key")
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [Text.Encoding]::UTF8
