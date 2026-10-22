@@ -89,7 +89,7 @@ powershell -ExecutionPolicy Bypass -File build.ps1 -Dev   # 开发模式，改�
 
 | 分支 | 说明 |
 |---|---|
-| `master` | v0.6.0 稳定版 |
+| `master` | v0.6.1 稳定版 |
 | `v0.7/campus` | 校园增强（DDL、运势、校园新闻），当前开发分支 |
 | `v0.6/chat-ui` | v0.6 聊天界面开发分支 |
 

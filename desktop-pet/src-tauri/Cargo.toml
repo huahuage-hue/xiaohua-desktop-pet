@@ -1,6 +1,6 @@
 [package]
 name = "xiaohua-pet"
-version = "0.6.0"
+version = "0.6.1"
 description = "小嬅桌宠"
 edition = "2021"
 
