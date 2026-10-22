@@ -51,7 +51,7 @@ v0.6.0 的完整开发记录（四期分别做了什么、怎么验证、哪些�
 | 聊天界面（v0.6.0） | 漫画对白：脚边细输入栏 + 头顶气泡回复（她始终完整可见）；侧边聊天窗：独立窗口贴在她旁边跟着走，完整记录、思考折叠、动作标签、确认卡 |
 | 深度思考 / 帮你做事（v0.6.0） | 思考模型 + 思考过程展示；12 个安全工具（时间、天气、提醒、便签、网页、搜索、开程序、剪贴板、看屏幕），动电脑前问「好 / 不要」 |
 | 看屏幕（v0.6.0，默认关） | 截你正在用的窗口所在显示器 → 视觉模型描述 → 聊天模型；按需 + 可选偶尔主动看；首次同意、隐私双重拦截 |
-| 自动更新（v0.6.0） | tauri-plugin-updater + Gitee（地址仍是占位）；签名校验；面板「设置 → 更新」 |
+| 自动更新（v0.6.0） | tauri-plugin-updater + GitHub（raw 清单 + Releases 安装包）；签名校验；面板「设置 → 更新」 |
 | 记忆 v2 | 档案 + 事实 / 事件 / 约定；每 3 轮后台抽取、去重、上限、90 天事件过期、旧摘要迁移 |
 | 桌面感知 | 前台进程 / 标题 / 全屏；会议/游戏/隐私/全屏安静；标题默认不进模型；全屏可自动隐藏 |
 | 聊天记录 | 按天分组、搜索、删单条、导出/导入；面板内也能发消息 |
@@ -167,7 +167,7 @@ powershell -ExecutionPolicy Bypass -File build.ps1 -SkipInstall
 - `-OutDir D:\某目录`：改交付目录，默认 `D:\小嬅桌宠`。
 - 构建会先同步 `../assets` 的 9 个 JS 和 `assets/wardrobe/` 到 `web/assets/`，再 `cargo tauri build`，最后复制 exe、当前版本的安装包、`使用说明.txt` 到交付目录，并打开资源管理器（`-NoOpen` 不打开）。
 - **v0.6.0 起必须有更新签名私钥**（`createUpdaterArtifacts: true`）：`build.ps1` 从 `-Key`（默认 `%USERPROFILE%\.tauri\xiaohua-updater.key`）读进 `TAURI_SIGNING_PRIVATE_KEY`；没有就报错并给出生成命令。换了密钥必须同步改 `tauri.conf.json → plugins.updater.pubkey`。
-- `-Release [-Notes "…"] [-UpdateBase "https://gitee.com/<用户>/<仓库>/releases/download"]`：额外在 `OutDir\发布\v版本\` 生成英文名安装包 `xiaohua-pet_<版本>_x64-setup.exe`、`latest.json`、`发布说明.txt`。
+- `-Release [-Notes "…"] [-UpdateBase "https://github.com/<用户>/<仓库>/releases/download"]`：额外在 `OutDir\发布\v版本\` 生成英文名安装包 `xiaohua-pet_<版本>_x64-setup.exe`、`latest.json`、`发布说明.txt`。
 - 测试构建请用 `-OutDir "$env:TEMP\xh-test-build" -NoOpen`，不要覆盖用户的 `D:\小嬅桌宠`。
 - 首次编译 5–10 分钟；之后 1–2 分钟。C 盘和 D 盘都建议留 5GB 以上。crates.io 走 rsproxy 镜像，偶尔很慢：`$env:CARGO_HTTP_TIMEOUT='120'; $env:CARGO_NET_RETRY='10'; cargo fetch` 先拉依赖。
 
@@ -323,7 +323,7 @@ Rust 宿主（src-tauri/src/main.rs）
 ### 5.7.3 自动更新（v0.6.0，`src-tauri/src/update.rs`）
 
 - `tauri-plugin-updater` 2.14；公钥在 `tauri.conf.json → plugins.updater.pubkey`；`installMode: passive`；`dangerousInsecureTransportProtocol: true`（插件只能在配置里开），**真正的把关在 `update.rs::urls()`**：正式地址只认 https，http 只允许 `XH_UPDATE_URL` 指向 127.0.0.1 / localhost。
-- `UPDATE_URLS` 现在是占位 `https://gitee.com/your-name/xiaohua-pet-release/raw/master/latest.json`，检查时直接返回“还没配置更新地址”。用户建好 Gitee 仓库后改这一行（以及 `build.ps1 -UpdateBase`）。
+- `UPDATE_URLS` 指向仓库 master 根目录的 `latest.json`（GitHub raw 为主，jsDelivr 兜底）；`build.ps1 -UpdateBase` 指向 GitHub Releases 下载前缀。下载超时单独放宽到 10 分钟（检查仍是 30 秒），照顾国内访问 GitHub 的慢链路。
 - `update_check` → `{available, current, version, notes, date}`，并把 `Update` 存进 `Pending`；`update_install {dry}`：dry 只下载 + 校验签名，否则保存窗口状态后 `download_and_install`（Windows 上会退出并跑安装包，装完重开）。进度事件 `pet://update {kind: progress|verified|installing}`。
 - 插件会校验**签名里的版本号**和清单 `version` 一致（防篡改）；测试用旧包冒充新版本要 `cargo tauri signer sign --app-version <版本>` 重新签。
 - 网页：`pet.js` 启动 60 秒后 + 每 24 小时 `checkUpdate()`（`autoUpdate`，默认开），每个版本只提醒一次（`xh-update-seen`）；面板「设置 → 更新」检查 / 立即更新 / 进度条 / 更新说明。
@@ -843,7 +843,7 @@ v0.6.0 测试还需要假服务支持（按需加分支）：
 | 中 | 多显示器 / DPI | 贴边/穿透用物理像素；125%/150% 下需复测坐标换算 |
 | 中 | 记忆隐私 | 敏感信息只靠提示词约束；localStorage/导出明文；不要承诺“绝对不会记” |
 | 中 | 记忆抽取成本 | 每 3 轮额外一次请求，增加 token；忙碌/抽取中会跳过；用户无感知 |
-| 高 | 更新地址未配置 | `update.rs` 的 `UPDATE_URLS` 和 `build.ps1 -UpdateBase` 还是 `your-name/xiaohua-pet-release` 占位；用户建好 Gitee 公开仓库后要改，并实测 Gitee raw / 附件对未登录下载是否可用（不行就加备用地址） |
+| 高 | 更新链路未实测 | `UPDATE_URLS` 和 `build.ps1 -UpdateBase` 已指向 GitHub（raw 清单 + Releases 附件），但还没发过真实版本；国内直连 Releases 附件约 50KB/s，需实测下载与安装（慢就换镜像或改用 jsDelivr 托管安装包） |
 | 高 | 更新签名私钥 | 只在 `%USERPROFILE%\.tauri\xiaohua-updater.key`，没有别的备份；丢了就要换公钥，已装版本收不到更新 |
 | 中 | 真实服务商格式 | reasoning / tool_calls / 图片消息只按 OpenAI 兼容格式实现；DeepSeek / 通义 / 智谱 / Kimi 需各测一次，出问题多半在 `THINK` 表、`extra` 参数或视觉模型名 |
 | 中 | 工具的真实执行 | 打开程序 / 网页 / 写剪贴板只测了查找和拒绝路径；「设置」「截图」用的是 ms-settings: / ms-screenclip: 协议 |
@@ -876,10 +876,10 @@ v0.6.0 测试还需要假服务支持（按需加分支）：
 1. 改代码，跑静态检查和真机冒烟。
 2. 升版本号（§9.7），更新 `README` / `使用说明` 变更。
 3. 备份当前 exe/setup 到 `.backups\pre-v<版本>-<时间>\`。
-4. `powershell -ExecutionPolicy Bypass -File build.ps1 -SkipInstall -Release -Notes "这版更新了什么" -UpdateBase "https://gitee.com/<用户>/<仓库>/releases/download"`。
+4. `powershell -ExecutionPolicy Bypass -File build.ps1 -SkipInstall -Release -Notes "这版更新了什么" -UpdateBase "https://github.com/<用户>/<仓库>/releases/download"`。
 5. 确认 `D:\小嬅桌宠\小嬅桌宠.exe`、`安装包\小嬅桌宠_<版本>_x64-setup.exe`、`发布\v<版本>\` 都更新；计算 SHA256。
 6. 手动替换安装版并核对 ProductVersion，或运行 setup。
-7. 自动更新发布（照 `发布\v<版本>\发布说明.txt`）：Gitee 发行版标签 `v<版本>` 上传 `xiaohua-pet_<版本>_x64-setup.exe` → 把 `latest.json` 提交到仓库 master 根目录 → 用旧版面板「检查更新」确认。
+7. 自动更新发布（照 `发布\v<版本>\发布说明.txt`）：GitHub Releases 建标签 `v<版本>` 上传 `xiaohua-pet_<版本>_x64-setup.exe` → 把 `latest.json` 提交到仓库 master 根目录 → 用旧版面板「检查更新」确认。
 8. 发布时排除 `target/`、`.backups/`、`dist/`、`psd/raw/`、视频项目、临时截图；发布说明保留「角色设计 © 樺樺嗝」（用户已确认取得授权）。
 
 ### 12.2 回滚
