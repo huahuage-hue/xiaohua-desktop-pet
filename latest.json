@@ -5,7 +5,7 @@
     "platforms": {
         "windows-x86_64": {
             "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUZmRPWXVwUXg2K0c4SzJZeFlSYUhrNUo5TkRhOCtOaE1JbGtDK21JdXhyNFpwdnpORE52QzBsYmhac0kvZjFINE1waEhOb1U4ejBvaG1Nb0RFblU5THFna0Rhd25FVUFRPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkyNjQ4NjU2CWZpbGU65bCP5ayF5qGM5a6gXzAuNi4xX3g2NC1zZXR1cC5leGUJdmVyc2lvbjowLjYuMQpqSWs3eFFFVW9yUVZZTlQrbHZ2SnJMY1Y5bllkY3hGOVlTU2F6SWVza2doZ0g4Yy90bXdNVld3aXJtTlhJeHVNa1N1d01jenp1aHgxT2NFcFN6SW5DZz09Cg==",
-            "url": "https://github.com/huahuage-hue/xiaohua-desktop-pet/releases/download/v0.6.1/xiaohua-pet_0.6.1_x64-setup.exe"
+            "url": "https://gh-proxy.com/https://github.com/huahuage-hue/xiaohua-desktop-pet/releases/download/v0.6.1/xiaohua-pet_0.6.1_x64-setup.exe"
         }
     }
 }
