@@ -2,10 +2,10 @@
 # 用法：右键“使用 PowerShell 运行”，或在 desktop-pet 目录执行：  powershell -ExecutionPolicy Bypass -File build.ps1
 # 参数：-Dev 以开发模式运行（不打包，改网页后刷新即可）；-SkipInstall 跳过环境检查；-NoOpen 构建完不打开资源管理器
 #       -Release 额外生成自动更新要发布的文件（OutDir\发布\v版本\：安装包 + latest.json + 发布说明.txt）
-#       -UpdateBase Gitee 发行版下载地址前缀；-Notes 更新说明（显示在面板「更新」里）
+#       -UpdateBase GitHub 发行版下载地址前缀；-Notes 更新说明（显示在面板「更新」里）
 # v0.6.0 起安装包必须用更新签名私钥签名（默认 %USERPROFILE%\.tauri\xiaohua-updater.key，不要放进源码目录）
 param([switch]$Dev, [switch]$SkipInstall, [switch]$NoOpen, [switch]$Release, [string]$OutDir = 'D:\小嬅桌宠',
-  [string]$UpdateBase = 'https://gitee.com/your-name/xiaohua-pet-release/releases/download',
+  [string]$UpdateBase = 'https://github.com/huahuage-hue/xiaohua-desktop-pet/releases/download',
   [string]$Notes = '', [string]$Key = "$env:USERPROFILE\.tauri\xiaohua-updater.key")
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [Text.Encoding]::UTF8
@@ -108,16 +108,17 @@ if ($Release) {
   }
   [IO.File]::WriteAllText((Join-Path $rel 'latest.json'), ($latest | ConvertTo-Json -Depth 5), (New-Object Text.UTF8Encoding $false))
   $guide = @"
-小嬅桌宠 v$ver 发布步骤（Gitee）
-1. 打开 Gitee 仓库 → 发行版 → 创建发行版，标签填 v$ver
-2. 上传附件：$asset
+小嬅桌宠 v$ver 发布步骤（GitHub）
+1. 打开 GitHub 仓库 → Releases → Draft a new release，标签填 v$ver
+2. 上传附件：$asset（需要免安装版就一并传）
 3. 把 latest.json 放到仓库 master 分支根目录（覆盖旧的）并提交
 4. 等一两分钟，在旧版本面板「设置 → 更新 → 检查更新」确认能看到 v$ver
+清单地址：https://raw.githubusercontent.com/huahuage-hue/xiaohua-desktop-pet/master/latest.json
 下载地址：$url
 角色设计 © 樺樺嗝
 "@
   [IO.File]::WriteAllText((Join-Path $rel '发布说明.txt'), $guide, (New-Object Text.UTF8Encoding $true))
-  if ($UpdateBase -like '*your-name*') { Write-Host '  注意：UpdateBase 还是占位地址，latest.json 里的下载链接需要改成真实仓库' -ForegroundColor Yellow }
+  if ($UpdateBase -notlike 'https://*') { Write-Host '  注意：UpdateBase 不是 https 地址，自动更新会拒绝下载' -ForegroundColor Yellow }
   Write-Host "  发布文件：$rel"
 }
 

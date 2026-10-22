@@ -1,5 +1,5 @@
-// 自动更新（v0.6.0）：从 Gitee 读 latest.json，下载签名过的安装包，校验后安装
-// - 版本清单地址写在 UPDATE_URLS；环境变量 XH_UPDATE_URL 可临时换成别的地址（本机测试用，允许 http）
+// 自动更新（v0.6.0）：从 GitHub 读 latest.json，下载签名过的安装包，校验后安装
+// - 版本清单地址写在 UPDATE_URLS（GitHub raw 为主，jsDelivr 兜底）；环境变量 XH_UPDATE_URL 可临时换成别的地址（本机测试用，允许 http）
 // - 安装包用 cargo tauri signer 生成的私钥签名，公钥在 tauri.conf.json → plugins.updater.pubkey；签名对不上就不装
 // - Windows 上安装时会退出桌宠、跑安装程序（passive 模式只显示进度条），装完自动重新打开
 use std::sync::Mutex;
@@ -10,10 +10,12 @@ use tauri::{AppHandle, Emitter, State};
 use tauri_plugin_updater::{Update, UpdaterExt};
 use tauri_plugin_window_state::{AppHandleExt, StateFlags};
 
-/// 版本清单地址：建好 Gitee 仓库后把 your-name / xiaohua-pet-release 换成真实的用户名 / 仓库名
-/// （可以放多个，前一个连不上就试下一个）
-pub const UPDATE_URLS: &[&str] = &["https://gitee.com/your-name/xiaohua-pet-release/raw/master/latest.json"];
-const PLACEHOLDER: &str = "your-name";
+/// 版本清单地址：仓库 master 分支根目录的 latest.json
+/// raw.githubusercontent.com 最快；jsDelivr 在国内通常也可用，作为兜底（前一个连不上就试下一个）
+pub const UPDATE_URLS: &[&str] = &[
+    "https://raw.githubusercontent.com/huahuage-hue/xiaohua-desktop-pet/master/latest.json",
+    "https://cdn.jsdelivr.net/gh/huahuage-hue/xiaohua-desktop-pet@master/latest.json",
+];
 
 /// 最近一次检查到的新版本（安装时用）
 #[derive(Default)]
@@ -36,8 +38,8 @@ fn urls() -> Result<Vec<tauri::Url>, String> {
         Ok(u) if !u.trim().is_empty() => vec![u.trim().to_string()],
         _ => UPDATE_URLS.iter().map(|s| s.to_string()).collect(),
     };
-    if list.iter().all(|u| u.contains(PLACEHOLDER)) {
-        return Err("还没配置更新地址（Gitee 仓库建好后再开）".into());
+    if list.iter().all(|u| u.is_empty()) {
+        return Err("更新地址为空".into());
     }
     list.iter()
         .map(|u| {
@@ -101,7 +103,9 @@ pub async fn update_check(app: AppHandle, pending: State<'_, Pending>) -> Result
 /// 进度通过 pet://update 推给面板：{kind: progress, got, total} / {kind: verified, size} / {kind: installing}
 #[tauri::command]
 pub async fn update_install(app: AppHandle, pending: State<'_, Pending>, dry: Option<bool>) -> Result<(), String> {
-    let up = pending.0.lock().ok().and_then(|g| g.clone()).ok_or("先检查一下有没有新版本")?;
+    let mut up = pending.0.lock().ok().and_then(|g| g.clone()).ok_or("先检查一下有没有新版本")?;
+    // 检查用 30 秒超时；下载走的是访问 GitHub 的慢链路，给足 10 分钟
+    up.timeout = Some(Duration::from_secs(600));
     let a = app.clone();
     let (mut got, mut last_pct) = (0u64, -1i64);
     let on_chunk = move |n: usize, total: Option<u64>| {

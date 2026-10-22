@@ -15,7 +15,7 @@
    - `使用说明.txt`。
    如果桌宠正在运行，会先自动关闭再覆盖。`-NoOpen` 构建完不打开资源管理器。
 4. **v0.6.0 起安装包必须签名**（自动更新靠它校验）：私钥默认在 `%USERPROFILE%\.tauri\xiaohua-updater.key`（不在源码目录里，务必另外备份；丢了就没法给已装的旧版推更新），公钥写在 `tauri.conf.json → plugins.updater.pubkey`。没有私钥时 `build.ps1` 会报错并提示生成命令。
-5. 发布新版本：`build.ps1 -SkipInstall -Release -Notes "更新说明"`，在 `D:\小嬅桌宠\发布\v版本\` 生成英文名安装包、`latest.json` 和 `发布说明.txt`（Gitee 上传步骤）；`-UpdateBase` 指定发行版下载地址前缀。
+5. 发布新版本：`build.ps1 -SkipInstall -Release -Notes "更新说明"`，在 `D:\小嬅桌宠\发布\v版本\` 生成英文名安装包、`latest.json` 和 `发布说明.txt`（GitHub Releases 上传步骤）；`-UpdateBase` 指定发行版下载地址前缀。
 
 调试网页部分时，用 `build.ps1 -Dev` 启动开发模式，改完网页按 F5 刷新即可看到效果。
 
@@ -96,7 +96,7 @@
 
 ### 自动更新（v0.6.0，`src-tauri/src/update.rs`）
 
-- `tauri-plugin-updater`：`update_check` 读 `UPDATE_URLS`（Gitee `raw/master/latest.json`，仓库建好前是占位地址，检查会提示“还没配置”）；`update_install` 下载、校验 minisign 签名（含签名里的版本号）、passive 模式跑 NSIS 安装包，装完自动重开；
+- `tauri-plugin-updater`：`update_check` 读 `UPDATE_URLS`（GitHub raw `master/latest.json`，jsDelivr 兜底）；`update_install` 下载、校验 minisign 签名（含签名里的版本号）、passive 模式跑 NSIS 安装包，装完自动重开；下载超时 10 分钟（检查 30 秒）；
 - 桌宠启动 1 分钟后 + 每天查一次（`autoUpdate`，默认开），每个新版本只提醒一次（`xh-update-seen`）；面板「设置 → 更新」显示说明和进度；
 - 本机测试：环境变量 `XH_UPDATE_URL` 指向本机地址（只有 127.0.0.1 / localhost 允许 http），`update_install { dry: true }` 只下载校验不安装；
 - 便携版通过更新会变成安装版（装到 `%LOCALAPPDATA%\小嬅桌宠`）。
@@ -229,6 +229,6 @@ desktop-pet/
 - 已在 Windows 本机实际编译运行（Rust 1.99 + MSVC 14.44 + WebView2）。只打 NSIS 安装包；MSI 需要下载 WiX，国内网络容易卡住，已关闭。
 - `.cargo/config.toml` 配置了 rsproxy 镜像；在海外网络可删掉该文件。
 - 面板窗口和侧边聊天窗都由 async 命令创建：Windows 上在同步命令里新建 WebView 会死锁（表现为面板白屏），改代码时注意保持 async；三个窗口的 `additionalBrowserArgs` 都用 `main.rs` 的 `BROWSER_ARGS`，并与 `tauri.conf.json` 主窗口保持一致。
-- 真实服务商的思考 / 工具 / 图片消息格式只按 OpenAI 兼容格式实现，本机用假服务验证过；Gitee 发布链路要等仓库建好后实测。
+- 真实服务商的思考 / 工具 / 图片消息格式只按 OpenAI 兼容格式实现，本机用假服务验证过；GitHub 发布链路要发第一个真实版本时实测。
 
 角色设计 © 樺樺嗝。
